@@ -32,6 +32,15 @@ public class ForeignCurrencyAccount {
         this.status = Status.ACTIVE;
     }
 
+    /** 供 Repository 從儲存資料（主檔＋子帳明細）重建聚合。 */
+    public static ForeignCurrencyAccount restore(AccountNumber accountNumber, CustomerId ownerId,
+                                                 Status status, Map<Currency, Money> balances) {
+        ForeignCurrencyAccount account = new ForeignCurrencyAccount(accountNumber, ownerId);
+        account.status = Objects.requireNonNull(status);
+        account.subAccounts.putAll(balances);
+        return account;
+    }
+
     /** 外幣帳戶不收台幣 —— 這條規則只寫這一次，寫在它該在的地方。 */
     public void deposit(Money money) {
         assertActive();

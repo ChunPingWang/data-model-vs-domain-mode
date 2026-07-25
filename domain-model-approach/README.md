@@ -8,12 +8,21 @@
 
 | 套件 | 內容 | DDD 構件 |
 |---|---|---|
+| `application/` | `BuyForeignCurrencyUseCase`（Command in / DTO out，對前端唯一窗口） | Application Service |
 | `shared/` | `Money`、`ExchangeRate` | Value Object |
 | `customer/` | `Customer`、`CustomerId`、`ContactInfo` | Aggregate Root / VO |
 | `account/` | `TwdAccount`、`ForeignCurrencyAccount`、`AccountNumber` | Aggregate Root / VO |
 | `card/` | `CreditCard`、`CardNumber` | Aggregate Root / VO |
 | `service/` | `CurrencyExchangeService`、`CreditCardPaymentService` | Domain Service |
-| `repository/` | 三個 Repository **介面**（實作屬基礎設施層） | Repository |
+| `repository/` | 三個 Repository **介面**：**一個 Repository 對應一個聚合**，`save()` 傳入整個聚合 | Repository |
+| `infrastructure/` | Repository 實作：`ForeignCurrencyAccount` 聚合拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表 | Infrastructure |
+| `demo/` | `DomainModelDemo`：可執行的端到端驗證 | — |
+| `src/test/` | 中文 Gherkin（與 data 模組同一份）+ Cucumber Step Definitions | — |
+
+```bash
+mvn test -pl domain-model-approach        # 8 個 Cucumber 場景
+java -cp target/classes com.bank.domainmodel.demo.DomainModelDemo
+```
 
 ## 關鍵設計決策
 

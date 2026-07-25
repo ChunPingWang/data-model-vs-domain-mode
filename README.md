@@ -1,24 +1,43 @@
 # Data Model vs. Domain Model — 以銀行客戶服務為例
 
 以同一組銀行業務（**台幣帳戶、外幣帳戶、信用卡**）為標的，
-用兩套可對照的 Java 程式碼，比較「資料導向（Data Model）」與「領域導向（Domain Model）」
+用兩套**可執行、可測試**的 Java 程式碼，比較「資料導向（Data Model）」與「領域導向（Domain Model）」
 兩種建模方式在 **程式架構** 與 **資料設計** 上的差異。
 
+兩個模組共用**同一份中文 Gherkin 業務場景**（BDD），各自用 Cucumber 驗收自己的實作
+——測試本身也是比較的一部分。
+
 ```
-├── data-model-approach/      # 資料導向：資料表鏡射 + Transaction Script
-│   ├── schema.sql
-│   └── src/.../datamodel/
-│       ├── entity/           # CustomerDO / AccountDO / CreditCardDO（貧血模型）
-│       ├── dao/              # 資料表存取
-│       └── service/          # BankingService —— 所有業務邏輯都在這裡
-└── domain-model-approach/    # 領域導向：聚合 + Value Object + Domain Service
-    └── src/.../domainmodel/
-        ├── shared/           # Money / ExchangeRate（Value Object）
-        ├── customer/         # Customer 聚合
-        ├── account/          # TwdAccount / ForeignCurrencyAccount 聚合
-        ├── card/             # CreditCard 聚合
-        ├── service/          # 跨聚合的 Domain Service
-        └── repository/       # Repository 介面（實作屬基礎設施層）
+├── pom.xml                       # Maven 多模組（Cucumber + JUnit 5）
+├── data-model-approach/          # 資料導向：資料表鏡射 + Transaction Script
+│   ├── schema.sql                #   設計起點：ER 圖與資料表
+│   └── src
+│       ├── main/.../datamodel/
+│       │   ├── web/              #   AccountController —— DO 直接回傳前端
+│       │   ├── service/          #   BankingService（Transaction Script，規則全在這）
+│       │   ├── dao/              #   一個 DAO 對應一張表，傳輸單位是「一列」
+│       │   ├── entity/           #   貧血 DO（只有 getter/setter）
+│       │   └── demo/             #   DataModelDemo —— 可執行的端到端驗證
+│       └── test/
+│           ├── resources/features/   # 中文 Gherkin（與另一模組同一份）
+│           └── java/.../bdd/         # Cucumber Step Definitions
+└── domain-model-approach/        # 領域導向：聚合 + Value Object + Domain Service
+    └── src
+        ├── main/.../domainmodel/
+        │   ├── application/      #   UseCase（對前端唯一窗口，回傳 DTO）
+        │   ├── shared/           #   Money / ExchangeRate（Value Object）
+        │   ├── customer/ account/ card/  # 聚合：規則的家
+        │   ├── service/          #   跨聚合的 Domain Service
+        │   ├── repository/       #   一個 Repository 對應「一個聚合」（介面）
+        │   ├── infrastructure/   #   Repository 實作：一個聚合 ↔ 多張表
+        │   └── demo/             #   DomainModelDemo —— 可執行的端到端驗證
+        └── test/                 #   同一份 Gherkin + 自己的 Step Definitions
+```
+
+```bash
+mvn test                                                            # 跑兩個模組的 Cucumber 驗收（8+8 場景）
+java -cp data-model-approach/target/classes  com.bank.datamodel.demo.DataModelDemo
+java -cp domain-model-approach/target/classes com.bank.domainmodel.demo.DomainModelDemo
 ```
 
 ---
@@ -33,8 +52,7 @@
 | 業務邏輯位置 | 集中在 Service（Transaction Script） | 分佈在聚合、Value Object、Domain Service |
 | 一句話 | **表驅動程式** | **業務驅動程式** |
 
-兩者不是對錯之分，而是**優化目標不同**：Data Model 優化「存取與報表」，
-Domain Model 優化「業務規則的表達與演進」。
+出發點不同，但**設計結果會體現在每一層**。第三節以同一個使用情境把兩邊的三層全部攤開對照。
 
 ---
 
@@ -147,57 +165,159 @@ classDiagram
 
 ---
 
-## 三、程式架構比較
+## 三、同一個使用情境，走完三層：前端 → Business → Repository
 
-### 同一個需求，兩種寫法
+使用情境：**客戶用台幣帳戶 32,500 元，以匯率 32.5 結購美元 1,000 元存入外幣帳戶。**
 
-**需求：台幣結購外幣（換匯）**
+### Data Model 途徑的三層
 
-Data Model 途徑（[`BankingService.buyForeignCurrency`](data-model-approach/src/main/java/com/bank/datamodel/service/BankingService.java)）——
-一支 Transaction Script 把所有事做完：
+```mermaid
+sequenceDiagram
+    participant UI as 前端
+    participant C as AccountController
+    participant S as BankingService<br/>(Transaction Script)
+    participant D as AccountDao<br/>(一表一 DAO)
+    UI->>C: POST /fx/purchase (帳號、金額、匯率都是裸字串/數字)
+    C->>S: buyForeignCurrency(...)
+    S->>D: findByAccountNo(台幣帳號) → AccountDO(一列)
+    S->>D: findByAccountNo(外幣帳號) → AccountDO(一列)
+    Note over S: 所有 if/else 檢查 + 匯率計算<br/>+ setBalance() 都在這裡
+    S->>D: update(台幣列)
+    S->>D: update(外幣列)
+    UI->>C: GET /accounts/{no}
+    C-->>UI: AccountDO 原樣序列化<br/>{acctType:"03", status:"A", ...} 碼值由前端翻譯
+```
+
+### Domain Model 途徑的三層
+
+```mermaid
+sequenceDiagram
+    participant UI as 前端
+    participant U as BuyForeignCurrencyUseCase<br/>(Application Service)
+    participant A as TwdAccount / FxAccount<br/>(聚合) + ExchangeRate(VO)
+    participant R as Repository<br/>(一聚合一 Repository)
+    UI->>U: Command(帳號、金額、幣別、匯率)
+    U->>R: findByAccountNumber() → 完整聚合
+    U->>A: rate.convert() / from.withdraw() / to.deposit()
+    Note over A: 規則在模型裡：<br/>餘額不足、幣別不符、凍結 → 聚合自己擋
+    U->>R: save(整個聚合)
+    Note over R: 內部拆寫 FX_ACCOUNT 主檔<br/>+ FX_SUB_ACCOUNT 每幣別一列
+    U-->>UI: Result DTO（語意化欄位，與表結構脫鉤）
+```
+
+### 逐層對照（每一格都有對應的程式檔可驗證）
+
+| 層 | Data Model 途徑 | Domain Model 途徑 |
+|---|---|---|
+| **前端呈現** | [`AccountController`](data-model-approach/src/main/java/com/bank/datamodel/web/AccountController.java) 把 `AccountDO` 原樣回傳：畫面拿到 `acctType:"03"`、`status:"A"`，自己查碼表翻譯。**API 契約 = 資料表 schema**，改表即改 API | [`BuyForeignCurrencyUseCase.Result`](domain-model-approach/src/main/java/com/bank/domainmodel/application/BuyForeignCurrencyUseCase.java) 回傳語意化 DTO（`purchasedFxAmount: "USD 1000.00"`）。聚合不外洩，**API 契約與儲存結構脫鉤** |
+| **Business Layer** | `BankingService` 一支 Transaction Script 做完載入、檢查、計算、寫回；規則跨方法重複 | UseCase 只編排（載入→呼叫領域行為→存回→轉 DTO）；規則在聚合與 `ExchangeRate` 裡，各寫一次 |
+| **Repository Layer** | **一個 DAO ↔ 一張表**，傳輸單位是「一列 DO」；跨表一致性由 Service 呼叫兩次 `update()` 自行維持 | **一個 Repository ↔ 一個聚合**，`save()` 傳入**整個聚合**；[`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/infrastructure/persistence/InMemoryForeignCurrencyAccountRepository.java) 內部拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表，呼叫端毫不知情 |
+
+> **Repository 粒度是兩者最本質的差異之一**：
+> Data Model 的 DAO 與資料表一一對應（`AccountDao ↔ ACCOUNT`），聚合這個概念不存在；
+> Domain Model 的 Repository 與**聚合**一一對應，聚合對應幾張表是基礎設施的私事——
+> `TwdAccount` 剛好一張表、`ForeignCurrencyAccount` 是主檔+子帳兩張表，
+> 但兩個 Repository 的契約長得一模一樣：`save(聚合)` / `findBy...() → 聚合`。
+> 交易與一致性邊界因此從「Service 方法」移到「聚合」身上。
+
+兩邊各附一支可執行 Demo 驗證上述行為（含 Data Model 途徑「繞過 Service 寫出負餘額、幣別錯帳」的資料洞示範）：
+[`DataModelDemo`](data-model-approach/src/main/java/com/bank/datamodel/demo/DataModelDemo.java)、
+[`DomainModelDemo`](domain-model-approach/src/main/java/com/bank/domainmodel/demo/DomainModelDemo.java)。
+
+---
+
+## 四、從測試出發：Gherkin → Cucumber → prod. code
+
+BDD 的走法：先用業務語言寫**測試案例**（Gherkin），再寫**測試程式**（Cucumber Step Definitions），
+最後讓 **prod. code** 通過驗收。本專案的關鍵設計：**兩個模組共用同一份 Gherkin**——
+業務場景與實作方式無關，但 Step Definitions 的長相立刻暴露兩種架構的差異。
+
+### 測試案例（節錄，[完整 feature 檔](domain-model-approach/src/test/resources/features/)）
+
+```gherkin
+# language: zh-TW
+功能: 台幣結購外幣（換匯）
+
+  場景: 餘額足夠時結購成功
+    假設 客戶 "C000001" 的台幣帳戶 "0011223344556" 餘額為 100000 元
+    並且 客戶 "C000001" 擁有外幣帳戶 "0099887766554"
+    當 以匯率 32.5 用台幣 32500 元結購美元
+    那麼 交易成功
+    並且 台幣帳戶餘額應為 67500 元
+    並且 外幣帳戶的美元子帳餘額應為 1000 美元
+
+  場景: 台幣餘額不足時拒絕交易
+    假設 客戶 "C000001" 的台幣帳戶 "0011223344556" 餘額為 10000 元
+    並且 客戶 "C000001" 擁有外幣帳戶 "0099887766554"
+    當 以匯率 32.5 用台幣 32500 元結購美元
+    那麼 交易應被拒絕並提示 "餘額不足"
+    並且 台幣帳戶餘額應為 10000 元
+```
+
+共 8 個場景 × 2 個模組（換匯 2、台幣存提 3、信用卡授權 3），`mvn test` 全數通過：
+
+```
+Tests run: 8, Failures: 0 -- in com.bank.datamodel.bdd.CucumberTest
+Tests run: 8, Failures: 0 -- in com.bank.domainmodel.bdd.CucumberTest
+```
+
+### 同一步驟，兩種 Step Definition
+
+「假設 客戶持有信用卡 額度 50000 元」這一步——
+
+[Data Model 側](data-model-approach/src/test/java/com/bank/datamodel/bdd/DataModelSteps.java)：
+測試被迫講「資料表方言」，手工組欄位碼；規則要經過 Service + DAO 才測得到。
 
 ```java
-public void buyForeignCurrency(String twdAccountNo, String fxAccountNo,
-                               BigDecimal twdAmount, BigDecimal exchangeRate) {
-    AccountDO twd = accountDao.findByAccountNo(twdAccountNo);
-    AccountDO fx  = accountDao.findByAccountNo(fxAccountNo);
-    if (twd == null || fx == null) throw new IllegalArgumentException("帳戶不存在");
-    if (!"01".equals(twd.getAcctType())) throw new IllegalArgumentException("扣款帳戶必須是台幣活存");
-    if (!"03".equals(fx.getAcctType()))  throw new IllegalArgumentException("入帳帳戶必須是外幣帳戶");
-    if (!"A".equals(twd.getStatus()) || !"A".equals(fx.getStatus())) ...
-    if (twd.getBalance().compareTo(twdAmount) < 0) throw new IllegalStateException("台幣餘額不足");
-
-    BigDecimal fxAmount = twdAmount.divide(exchangeRate, 2, RoundingMode.DOWN);
-    twd.setBalance(twd.getBalance().subtract(twdAmount));
-    fx.setBalance(fx.getBalance().add(fxAmount));
-    accountDao.update(twd);
-    accountDao.update(fx);
+@Given("客戶 {string} 持有信用卡 {string} 額度 {int} 元")
+public void 建立信用卡(String customerId, String cardNo, int limit) {
+    CreditCardDO row = new CreditCardDO();
+    row.setCardNo(cardNo);
+    row.setCustomerId(customerId);
+    row.setCardType("02");                      // 欄位碼：測試也得知道 02 是金卡
+    row.setCreditLimit(new BigDecimal(limit));
+    row.setUsedAmt(BigDecimal.ZERO);            // 漏設任何一欄，測的就不是真實狀態
+    row.setBillAmt(BigDecimal.ZERO);
+    row.setStatus("A");
+    row.setExpireDate(LocalDate.of(2030, 12, 31));
+    cardDao.insert(row);
 }
 ```
 
-Domain Model 途徑（[`CurrencyExchangeService`](domain-model-approach/src/main/java/com/bank/domainmodel/service/CurrencyExchangeService.java)）——
-Domain Service 只編排，規則各歸其位：
+[Domain Model 側](domain-model-approach/src/test/java/com/bank/domainmodel/bdd/DomainModelSteps.java)：
+測試講的語言就是 prod. code 的語言，Gherkin 一句對應一個領域行為。
 
 ```java
-public Money buyForeignCurrency(TwdAccount from, ForeignCurrencyAccount to,
-                                Money twdAmount, ExchangeRate rate) {
-    Money fxAmount = rate.convert(twdAmount);  // 換算方向錯誤 → ExchangeRate 擋
-    from.withdraw(twdAmount);                  // 餘額不足、凍結 → TwdAccount 擋
-    to.deposit(fxAmount);                      // 存入台幣、凍結 → ForeignCurrencyAccount 擋
-    return fxAmount;
+@Given("客戶 {string} 持有信用卡 {string} 額度 {int} 元")
+public void 建立信用卡(String customerId, String cardNo, int limit) {
+    card = new CreditCard(new CardNumber(cardNo), new CustomerId(customerId),
+            Money.twd(String.valueOf(limit)), YearMonth.of(2030, 12));
+}
+
+@Given("該卡已掛失")
+public void 掛失() {
+    card.reportLost();          // 對照組：Data Model 側是 row.setStatus("B")
 }
 ```
 
-### 架構特性對照
+| 測試面向 | Data Model | Domain Model |
+|---|---|---|
+| Given 的準備工作 | 組資料列、填欄位碼（`"02"`、`"A"`、`"B"`） | `new` 聚合、呼叫領域行為（`reportLost()`） |
+| 規則的受測單位 | 只能整條 Service 流程一起測 | 聚合可單獨測，UseCase 另測編排 |
+| 測試與業務語言的距離 | Gherkin 說「掛失」，程式寫 `setStatus("B")` | Gherkin 說「掛失」，程式寫 `reportLost()` |
+| 需要的基礎設施 | DAO（真 DB 或 mock/in-memory） | 純物件即可；Repository 只在 UseCase 級測試出現 |
+
+---
+
+## 五、架構特性對照
 
 | 面向 | Data Model 途徑 | Domain Model 途徑 |
 |---|---|---|
 | 分層 | Controller → Service → DAO → Table | Interface → Application → **Domain** → Infrastructure |
 | 業務規則落點 | Service 方法內的 if/else，**同一規則多處重複**（deposit/withdraw 各檢查一次狀態） | 聚合唯一入口，**規則只寫一次**，呼叫端繞不過 |
-| 不變量保護 | 靠工程師記得檢查；任何人 `setBalance()` 就能改出負餘額 | 建構子 + 行為方法把關；物件**不可能**進入非法狀態 |
+| 不變量保護 | 靠工程師記得檢查；任何人 `setBalance()` 就能改出負餘額（Demo 有實證） | 建構子 + 行為方法把關；物件**不可能**進入非法狀態（沒有 setter） |
 | 型別安全 | `String acctType`、裸 `BigDecimal`：把卡號當帳號傳、美元加台幣，編譯期無感 | `AccountNumber`／`CardNumber`／`Money`：這類錯誤**編譯不過或立刻拋例外** |
 | 新業務型態（例：加開數位帳戶） | ACCOUNT 加一個 `ACCT_TYPE=04`，然後**全域搜尋每個 if/else** 補分支 | 新增一個 `DigitalAccount` 聚合，既有程式碼不動（開放封閉） |
-| 單元測試 | 邏輯綁在 Service + DAO，**要 mock 資料庫**才能測規則 | 聚合是純物件，`new` 出來直接測，**不需要任何 mock** |
 | 併發控制粒度 | 以「資料列」思考，容易整批鎖表 | 以「聚合」為交易邊界，一次交易鎖一個聚合 |
 | 團隊溝通 | 「把 ACCT_TYPE 03 的 BALANCE 減掉再 update」 | 「外幣帳戶提領美元子帳」——與業務單位**同一種語言** |
 
@@ -205,14 +325,15 @@ public Money buyForeignCurrency(TwdAccount from, ForeignCurrencyAccount to,
 
 | | Data Model | Domain Model |
 |---|---|---|
-| 物件:資料表 | 1:1（AccountDO ↔ ACCOUNT） | 不必 1:1（一個聚合可對多張表；`Money` 攤平成兩欄） |
+| 物件:資料表 | 1:1（AccountDO ↔ ACCOUNT） | 不必 1:1（FX 聚合 ↔ 主檔+子帳兩張表；`Money` 攤平成兩欄） |
+| Repository/DAO 粒度 | **一個 DAO ↔ 一張表**，傳「一列」 | **一個 Repository ↔ 一個聚合**，傳「整個聚合」 |
 | 依賴方向 | 程式依賴資料表結構，**改表就改程式** | 領域層定義 Repository 介面，**儲存方式可抽換** |
 | 衍生值 | 存欄位或每處重算（`USED_AMT`、可用額度） | 行為即定義（`availableCredit()`） |
 | 狀態表達 | 魔術碼 `'A'/'F'/'C'` 散落各處 | `enum Status { ACTIVE, FROZEN, CLOSED }` |
 
 ---
 
-## 四、什麼時候該用哪一種？
+## 六、什麼時候該用哪一種？
 
 **適合 Data Model（Transaction Script）：**
 
@@ -240,7 +361,7 @@ public Money buyForeignCurrency(TwdAccount from, ForeignCurrencyAccount to,
 
 ---
 
-## 五、延伸閱讀
+## 七、延伸閱讀
 
 - Eric Evans, *Domain-Driven Design*（藍皮書）— 聚合、Value Object、Repository 的出處
 - Martin Fowler, *Patterns of Enterprise Application Architecture* — Transaction Script vs. Domain Model 兩個模式的原始定義

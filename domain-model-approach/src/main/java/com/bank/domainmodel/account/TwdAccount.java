@@ -31,6 +31,15 @@ public class TwdAccount {
         this.status = Status.ACTIVE;
     }
 
+    /** 供 Repository 從儲存資料重建聚合；只做重建，不觸發業務行為。 */
+    public static TwdAccount restore(AccountNumber accountNumber, CustomerId ownerId,
+                                     Money balance, Status status) {
+        TwdAccount account = new TwdAccount(accountNumber, ownerId);
+        account.balance = Objects.requireNonNull(balance);
+        account.status = Objects.requireNonNull(status);
+        return account;
+    }
+
     public void deposit(Money money) {
         assertActive();
         if (!money.currency().equals(Money.TWD)) {

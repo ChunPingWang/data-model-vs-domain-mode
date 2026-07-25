@@ -5,14 +5,22 @@
 [`BankingService`](src/main/java/com/bank/datamodel/service/BankingService.java)
 （Fowler 所稱的 **Transaction Script** 模式）。
 
-## 結構
+## 結構（三層）
 
 | 層 | 內容 |
 |---|---|
 | `schema.sql` | 資料表定義——真正的「模型」在這裡 |
+| `web/` | `AccountController`：DO 原樣回傳前端，API 契約 = 資料表 schema |
+| `service/` | `BankingService`：存款、提款、換匯、刷卡、繳款五支流程（Business Layer） |
+| `dao/` | **一個 DAO 對應一張表**，傳輸單位是「一列 DO」（含 in-memory 實作） |
 | `entity/` | `CustomerDO` / `AccountDO` / `CreditCardDO`：只有 getter/setter 的貧血物件 |
-| `dao/` | 資料表 CRUD 介面 |
-| `service/` | `BankingService`：存款、提款、換匯、刷卡、繳款五支流程 |
+| `demo/` | `DataModelDemo`：可執行的端到端驗證（含資料洞示範） |
+| `src/test/` | 中文 Gherkin（與 domain 模組同一份）+ Cucumber Step Definitions |
+
+```bash
+mvn test -pl data-model-approach          # 8 個 Cucumber 場景
+java -cp target/classes com.bank.datamodel.demo.DataModelDemo
+```
 
 ## 這個寫法的代價（對照 domain-model-approach 逐條驗證）
 
