@@ -542,6 +542,54 @@ public void 掛失() {
 > 關鍵不是「哪個比較先進」，而是：**寫入端的複雜規則交給 Domain Model 守護，
 > 讀取端與批次的大量資料交給 Data Model 直取**——這正是 CQRS 的精神。
 
+### 「並存」的落地：程式碼分路徑，資料表怎麼應對？
+
+「並存」指的是**程式碼層面**：同一套核心系統、通常同一個資料庫，
+依用途分成不同的**存取路徑**，而不是拆成兩個系統：
+
+```mermaid
+flowchart LR
+    subgraph CODE[同一套核心系統：三條存取路徑]
+        W["寫入路徑（交易）<br/>Controller → UseCase → 聚合 → Repository"]
+        Q["查詢路徑（報表/畫面）<br/>Query Service → DAO/SQL → 扁平 DTO"]
+        B["批次路徑（計息/對帳）<br/>SQL 集合運算"]
+    end
+    subgraph DB[同一個資料庫]
+        WT[("寫入模型表<br/>TWD_ACCOUNT<br/>FX_ACCOUNT + FX_SUB_ACCOUNT<br/>CREDIT_CARD")]
+        V[("DB View / 讀模型表<br/>V_CUSTOMER_POSITION")]
+    end
+    W -->|"強一致交易（鎖一個聚合）"| WT
+    Q --> V
+    V -."SQL JOIN（同庫）或事件同步（異庫）".- WT
+    B -->|"直接集合運算，事後對帳把關"| WT
+```
+
+- **寫入路徑**走 Domain Model：聚合守不變量，Repository 把聚合落到「寫入模型表」。
+- **查詢路徑**走 Data Model：Query Service 用 SQL/DAO 直接讀表、回傳扁平 DTO，
+  **不經過聚合**——畫面要的是資料形狀，載入整個聚合只是浪費。
+- **批次路徑**也走 Data Model：日終計息、對帳本質是集合運算，SQL 直接對表最快。
+
+**資料表的三種應對方式**（由簡到繁，多數系統停在第 1 種就夠）：
+
+| 方式 | 表結構 | 一致性 | 適用 |
+|---|---|---|---|
+| **1. 共用同一套表**（CQRS-lite，預設） | 表跟著**寫入模型**設計（聚合形狀，如 `FX_ACCOUNT`+`FX_SUB_ACCOUNT`）；查詢端用 SQL JOIN 或 **DB View** 攤平成報表形狀 | 同庫同交易，**強一致** | 絕大多數核心系統 |
+| **2. 另建讀模型表**（完整 CQRS） | 寫入表（聚合形狀）＋讀取表（查詢形狀、反正規化），以**領域事件／CDC／批次 ETL** 同步 | **最終一致**（有同步延遲） | 查詢量大、查詢形狀與寫入模型差很遠（客戶 360、跨系統彙總） |
+| **3. 批次直接操作寫入表** | 不另建表，SQL 集合運算直接更新 | 繞過了聚合，不變量**改由批次規則＋事後對帳**把關 | 日終計息、沖正、整批調帳 |
+
+對應到本 repo：`InMemoryForeignCurrencyAccountRepository` 落地的
+`FX_ACCOUNT`＋`FX_SUB_ACCOUNT` 就是「寫入模型表」；若要做「客戶總覽」報表，
+正確做法**不是**載入三個聚合再組裝，而是直接
+`SELECT ... FROM TWD_ACCOUNT JOIN FX_SUB_ACCOUNT JOIN CREDIT_CARD`（或建一個 View）
+回傳扁平 DTO——這條查詢路徑長得就像 data-model-approach 的寫法，而這**完全沒問題**，
+因為它只讀不寫，不需要不變量保護。
+
+兩個提醒：
+1. **表結構的主人是寫入模型**。表為聚合而設計，查詢用 View/JOIN 去遷就；
+   反過來讓報表需求扭曲寫入表，聚合↔表的對應就會開始腐化。
+2. **批次繞過聚合是刻意的破例**，不是免費的——第 3 種方式等於暫時放棄模型保護，
+   所以銀行實務上批次一定伴隨事後對帳（reconciliation）補上驗證。
+
 ---
 
 ## 七、延伸閱讀
