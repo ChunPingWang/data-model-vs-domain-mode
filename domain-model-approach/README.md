@@ -24,10 +24,18 @@
 | `bootstrap/` | `DomainModelDemo`：組裝根（唯一同時認識介面與實作的地方）＋可執行驗證 | Composition Root |
 | `src/test/` | 中文 Gherkin（與 data 模組同一份）+ Cucumber Step Definitions | — |
 
+## 執行
+
 ```bash
-mvn test -pl domain-model-approach        # 8 個 Cucumber 場景
+# 在【專案根目錄】執行：跑本模組的 8 個 Cucumber 場景
+mvn test -pl domain-model-approach
+#   → 報表：domain-model-approach/target/cucumber-report.html
+
+# 在【本模組目錄】執行：跑端到端 Demo（需先 mvn compile 或 mvn test）
 java -cp target/classes com.bank.domainmodel.bootstrap.DomainModelDemo
 ```
+
+8 個場景的完整清單與逐句說明，見[根目錄 README 第四節](../README.md#四從測試出發gherkin--cucumber--prod-code)。
 
 ## 關鍵設計決策
 

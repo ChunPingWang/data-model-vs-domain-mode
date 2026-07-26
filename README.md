@@ -43,32 +43,103 @@
         └── test/                    # 同一份 Gherkin + 自己的 Step Definitions
 ```
 
-## 如何使用
+## 快速上手（初學者請從這裡開始）
 
-**環境需求**：JDK 21+、Maven 3.9+（不需要資料庫，儲存層以 in-memory 實作模擬）。
+### 0. 環境需求
+
+| 需求 | 版本 | 檢查指令 |
+|---|---|---|
+| JDK | **21 或以上** | `java -version` |
+| Maven | 3.9 或以上 | `mvn -version` |
+| 資料庫 | **不需要** | 儲存層用 `HashMap` 模擬（`InMemory*` 系列類別） |
+
+> 專案是純 Java + Maven，沒有 Spring、沒有 DB、沒有網路呼叫。
+> 第一次執行 `mvn test` 會下載 Cucumber / JUnit 相依套件，需要連網；之後就能離線跑。
+
+### 1. 三分鐘跑起來
 
 ```bash
-# 1. 跑 BDD 驗收測試：兩個模組各 8 個 Cucumber 場景（同一份 Gherkin）
+# ① 跑 BDD 驗收測試：兩個模組各 8 個 Cucumber 場景（同一份 Gherkin）
 mvn test
+```
 
-# 只跑單一模組
-mvn test -pl data-model-approach
-mvn test -pl domain-model-approach
+看到這兩行就代表兩種架構都通過了**同一份業務驗收**：
 
-# 2. 跑端到端 Demo（先 mvn test 或 mvn compile 產出 target/classes）
+```
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0 -- in com.bank.datamodel.bdd.CucumberTest
+[INFO] Tests run: 8, Failures: 0, Errors: 0, Skipped: 0 -- in com.bank.domainmodel.bdd.CucumberTest
+[INFO] BUILD SUCCESS
+```
+
+測試過程會把每個場景的中文步驟印在畫面上（`pretty` plugin），
+同時各產生一份可用瀏覽器開啟的報表：
+
+```
+data-model-approach/target/cucumber-report.html
+domain-model-approach/target/cucumber-report.html
+```
+
+```bash
+# ② 跑端到端 Demo（需先 mvn test 或 mvn compile 產出 target/classes）
 java -cp data-model-approach/target/classes   com.bank.datamodel.demo.DataModelDemo
 java -cp domain-model-approach/target/classes com.bank.domainmodel.bootstrap.DomainModelDemo
 ```
 
-**建議閱讀順序**：
+兩支 Demo 跑的是**同一筆換匯交易**，但結尾刻意展示相反的東西——
+Data Model 側示範「規則守不住」，Domain Model 側示範「規則守得住」：
 
-1. 先讀兩邊的「模型」：`schema.sql`（Data Model 的起點）↔ `domain/model/`（Domain Model 的起點）。
-2. 讀同一個業務場景的測試：`src/test/resources/features/currency_exchange.feature`（兩模組同一份），
-   再對照兩邊的 Step Definitions（`DataModelSteps` ↔ `DomainModelSteps`）。
+<table>
+<tr><th>DataModelDemo（節錄結尾）</th><th>DomainModelDemo（節錄結尾）</th></tr>
+<tr><td><pre>=== [資料洞示範] 繞過 Service 直接操作 DO ===
+  setBalance(-50000) 後餘額 = -50000
+      ← 不變量已被破壞
+  台幣 1000 誤加進 USD 帳戶餘額 = 2000.00
+      ← 幣別錯帳，編譯期與執行期都無感</pre></td>
+<td><pre>=== [不變量驗證] 非法操作在模型層就被擋下 ===
+  1. 提款超過餘額 → 餘額不足：…
+  2. 台幣 + 美元   → 幣別不一致: TWD vs USD
+  3. 台幣存入外幣帳戶 → 外幣帳戶不可存入台幣
+  4. 刷卡超過額度 → 超過可用額度：…
+（這一側不存在 setBalance()，負餘額寫不出來，編譯就失敗）</pre></td></tr>
+</table>
+
+### 2. 常用指令速查
+
+| 目的 | 指令 |
+|---|---|
+| 跑全部測試（兩個模組） | `mvn test` |
+| 只跑 Data Model 模組 | `mvn test -pl data-model-approach` |
+| 只跑 Domain Model 模組 | `mvn test -pl domain-model-approach` |
+| **只跑某一個場景** | `mvn test -pl domain-model-approach -Dcucumber.filter.name="餘額足夠時結購成功"` |
+| 只跑信用卡相關的三個場景 | `mvn test -Dcucumber.filter.name=".*刷卡.*\|.*額度.*\|.*掛失.*"` |
+| 只編譯不跑測試 | `mvn compile` |
+| 清掉建置產物重跑 | `mvn clean test` |
+
+> `-Dcucumber.filter.name` 吃的是**必須匹配整個場景名稱**的正規式——
+> 想用關鍵字篩選要自己補 `.*`（寫 `刷卡` 會一個都不中，要寫 `.*刷卡.*`）。
+> 沒被選中的場景會顯示為 `Skipped`，屬正常現象（例：`Tests run: 8, Failures: 0, Skipped: 7`）。
+
+### 3. 遇到問題時
+
+| 症狀 | 原因與解法 |
+|---|---|
+| `invalid target release: 21` | JDK 版本太舊。本專案 `maven.compiler.release=21`，請裝 JDK 21+ 並確認 `JAVA_HOME` |
+| `ClassNotFoundException` 執行 Demo 時 | 還沒編譯。先跑 `mvn test` 或 `mvn compile` 產出 `target/classes` |
+| 終端機中文變亂碼（常見於 Windows） | 終端機切 UTF-8：`chcp 65001`，或執行時加 `java -Dfile.encoding=UTF-8 -cp ...` |
+| 第一次 `mvn test` 卡在下載 | 正在抓 Cucumber/JUnit 套件，等它跑完；之後可加 `-o` 離線執行 |
+| 想確認測試真的有在驗證 | 故意把某個 feature 的期望值改錯（例 `5000` 改 `9999`）再跑一次，應該要**紅燈**——見第四節「看懂一次失敗」 |
+
+### 4. 建議閱讀順序
+
+1. 先讀兩邊的「模型」：[`schema.sql`](data-model-approach/schema.sql)（Data Model 的起點）
+   ↔ [`domain/model/`](domain-model-approach/src/main/java/com/bank/domainmodel/domain/model)（Domain Model 的起點）。
+2. 讀業務場景：`src/test/resources/features/*.feature`（兩模組同一份，共 8 個場景，
+   完整清單見**第四節**），再對照兩邊的 Step Definitions（`DataModelSteps` ↔ `DomainModelSteps`）。
 3. 順著一筆換匯交易走完各自的分層（見第三節的循序圖與 Class Diagram）。
 4. 跑兩支 Demo，看 Data Model 側的「資料洞示範」與 Domain Model 側的「不變量驗證」輸出。
+5. 做第四節末的**動手練習**：改一個場景讓它變紅，再自己補一個新場景讓它變綠。
 
-**如何在此架構上加新功能**（以「新增『台幣轉帳』」為例）：
+### 5. 如何在此架構上加新功能（以「新增『台幣轉帳』」為例）
 
 | 步驟 | data-model-approach（三層式） | domain-model-approach（六角） |
 |---|---|---|
@@ -415,36 +486,106 @@ BDD 的走法：先用業務語言寫**測試案例**（Gherkin），再寫**測
 最後讓 **prod. code** 通過驗收。本專案的關鍵設計：**兩個模組共用同一份 Gherkin**——
 業務場景與實作方式無關，但 Step Definitions 的長相立刻暴露兩種架構的差異。
 
-### 測試案例（節錄，[完整 feature 檔](domain-model-approach/src/test/resources/features/)）
+### 4-1. 一個測試由三個檔案組成
 
-```gherkin
-# language: zh-TW
-功能: 台幣結購外幣（換匯）
-
-  場景: 餘額足夠時結購成功
-    假設 客戶 "C000001" 的台幣帳戶 "0011223344556" 餘額為 100000 元
-    並且 客戶 "C000001" 擁有外幣帳戶 "0099887766554"
-    當 以匯率 32.5 用台幣 32500 元結購美元
-    那麼 交易成功
-    並且 台幣帳戶餘額應為 67500 元
-    並且 外幣帳戶的美元子帳餘額應為 1000 美元
-
-  場景: 台幣餘額不足時拒絕交易
-    假設 客戶 "C000001" 的台幣帳戶 "0011223344556" 餘額為 10000 元
-    並且 客戶 "C000001" 擁有外幣帳戶 "0099887766554"
-    當 以匯率 32.5 用台幣 32500 元結購美元
-    那麼 交易應被拒絕並提示 "餘額不足"
-    並且 台幣帳戶餘額應為 10000 元
-```
-
-共 8 個場景 × 2 個模組（換匯 2、台幣存提 3、信用卡授權 3），`mvn test` 全數通過：
+初學者最容易卡住的是「測試到底寫在哪」。Cucumber 把一個測試拆成三份，各有各的語言：
 
 ```
-Tests run: 8, Failures: 0 -- in com.bank.datamodel.bdd.CucumberTest
-Tests run: 8, Failures: 0 -- in com.bank.domainmodel.bdd.CucumberTest
+① 測試案例（業務語言，PM/業務也讀得懂）
+   src/test/resources/features/*.feature          ← 兩個模組共用同一份
+        │  「假設 客戶 "C000001" 的台幣帳戶 ... 餘額為 100000 元」
+        │
+        ▼  Cucumber 用字串比對，把每一句話對上一個 Java 方法
+② 測試程式（膠水層，把業務語言翻成程式呼叫）
+   src/test/java/.../bdd/DataModelSteps.java      ← 每個模組自己一份
+   src/test/java/.../bdd/DomainModelSteps.java       ★ 兩邊的差異就在這裡顯現
+        │  @Given("客戶 {string} 的台幣帳戶 {string} 餘額為 {int} 元")
+        │
+        ▼
+③ prod. code（受測的正式程式）
+   data-model-approach   : AccountServiceImpl / FxServiceImpl / …
+   domain-model-approach : TwdAccount / ForeignCurrencyAccount / CreditCard / …
+
+＋ 啟動器：src/test/java/.../bdd/CucumberTest.java
+   一個空類別，用標註告訴 JUnit「去 features/ 找場景、去這個 package 找 Step 定義」。
 ```
 
-### 同一步驟，兩種 Step Definition
+**中文 Gherkin 關鍵字**（檔案第一行的 `# language: zh-TW` 開啟中文模式）：
+
+| 中文 | 英文 | 意思 | 在本專案的角色 |
+|---|---|---|---|
+| `功能` | `Feature` | 這份檔案在測哪個業務功能 | 三個檔：換匯、台幣存提、信用卡授權 |
+| `場景` | `Scenario` | 一個具體測試案例 | 共 8 個，一個場景 = 一個測試 |
+| `假設` | `Given` | **前置狀態**（Arrange） | 建立帳戶／卡片、設定餘額與狀態 |
+| `當` | `When` | **執行動作**（Act） | 存款、提款、結購外幣、刷卡 |
+| `那麼` | `Then` | **驗證結果**（Assert） | 餘額對不對、有沒有被正確拒絕 |
+| `並且` | `And` | 延續上一個關鍵字 | 接在 `假設`／`那麼` 後面補條件或斷言 |
+
+### 4-2. 完整測試案例清單（8 個場景）
+
+三支 feature 檔，**兩個模組內容完全相同**（可用 `diff` 驗證），共 8 個場景：
+
+**A. 換匯 —— [`currency_exchange.feature`](domain-model-approach/src/test/resources/features/currency_exchange.feature)**
+
+| # | 場景 | 前置（假設） | 動作（當） | 預期（那麼） | 這條規則由誰守 |
+|---|---|---|---|---|---|
+| 1 | 餘額足夠時結購成功 | 台幣帳戶餘額 100,000；有外幣帳戶 | 以匯率 32.5 用台幣 32,500 結購美元 | 成功；台幣剩 **67,500**；美元子帳 **1,000** | Data：`FxServiceImpl`<br>Domain：`ExchangeRate.convert()` + 兩個聚合 |
+| 2 | 台幣餘額不足時拒絕交易 | 台幣帳戶餘額 **10,000**；有外幣帳戶 | 同上（要扣 32,500） | 被拒，訊息含「餘額不足」；台幣**維持 10,000**（不可被扣一半） | Data：`FxServiceImpl` 的 `if` 檢查<br>Domain：`TwdAccount.withdraw()` 拋 `InsufficientBalanceException` |
+
+> 場景 2 的第二個斷言是重點：驗證交易被拒後**沒有留下半套資料**。
+
+**B. 台幣帳戶存提款 —— [`twd_account.feature`](domain-model-approach/src/test/resources/features/twd_account.feature)**
+
+| # | 場景 | 前置（假設） | 動作（當） | 預期（那麼） | 這條規則由誰守 |
+|---|---|---|---|---|---|
+| 3 | 存款入帳 | 台幣帳戶餘額 0 | 存入 5,000 | 餘額 **5,000** | Data：`AccountServiceImpl.deposit()`<br>Domain：`TwdAccount.deposit()` |
+| 4 | 提款超過餘額被拒絕 | 台幣帳戶餘額 3,000 | 提領 5,000 | 被拒，訊息含「餘額不足」；餘額**維持 3,000** | Data：`AccountServiceImpl.withdraw()` 的 `if`<br>Domain：`TwdAccount.withdraw()` |
+| 5 | 凍結帳戶不可提款 | 餘額 3,000，且**帳戶已凍結** | 提領 1,000（額度內） | 被拒，訊息含「不允許交易」 | Data：`status != "A"` 的字串比對<br>Domain：`assertActive()` 檢查 `enum Status.FROZEN` |
+
+> 場景 5 專門測「餘額夠但狀態不允許」——把**額度檢查**與**狀態檢查**兩條規則分開驗證。
+
+**C. 信用卡授權 —— [`credit_card.feature`](domain-model-approach/src/test/resources/features/credit_card.feature)**
+
+| # | 場景 | 前置（假設） | 動作（當） | 預期（那麼） | 這條規則由誰守 |
+|---|---|---|---|---|---|
+| 6 | 額度內刷卡授權成功 | 持卡，額度 50,000 | 刷卡 48,000 | 授權成功；可用額度 **2,000** | Data：`creditLimit - usedAmt` 現算<br>Domain：`CreditCard.availableCredit()` |
+| 7 | 超過可用額度授權失敗 | 額度 50,000，**已刷 48,000** | 再刷 5,000 | 被拒，訊息含「超過可用額度」；可用額度**仍是 2,000** | Data：`CreditCardServiceImpl` 的 `if`<br>Domain：`CreditCard.authorize()` 拋 `CreditLimitExceededException` |
+| 8 | 掛失卡不可交易 | 持卡，**已掛失** | 刷卡 100（額度綽綽有餘） | 授權被拒 | Data：`status != "A"`<br>Domain：`status != Status.ACTIVE` |
+
+> 場景 6→7 是一組：先建立「用掉 48,000」的狀態，再驗證下一筆被擋，
+> 且**失敗的交易不會偷偷扣掉額度**（可用額度仍是 2,000）。
+> 場景 8 刷 100 元是刻意的——金額小到不可能超額，失敗只可能來自卡片狀態。
+
+**測試案例的覆蓋設計**：8 個場景刻意成對出現——
+每個業務動作都有 **1 個成功路徑（happy path）** 與 **1～2 個被拒路徑**，
+且每個被拒路徑都額外斷言「**狀態沒有被改壞**」。
+這正是本專案的論點所在：Data Model 側靠 Service 的 `if` 守住這些規則，
+Domain Model 側靠聚合守住——**兩邊都能通過同一份驗收，差別在於規則寫在哪、能不能被繞過**。
+
+### 4-3. 執行結果
+
+`mvn test` 兩個模組全數通過：
+
+```
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0 -- in com.bank.datamodel.bdd.CucumberTest
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0 -- in com.bank.domainmodel.bdd.CucumberTest
+```
+
+畫面上每個場景會逐句列出，右側是實際對應到的 Java 方法（這是 `pretty` plugin 的輸出）：
+
+```
+場景: 餘額足夠時結購成功                       # features/currency_exchange.feature:7
+  假設客戶 "C000001" 的台幣帳戶 "0011223344556" 餘額為 100000 元  # …DomainModelSteps.建立台幣帳戶(String,String,int)
+  並且客戶 "C000001" 擁有外幣帳戶 "0099887766554"                # …DomainModelSteps.建立外幣帳戶(String,String)
+  當以匯率 32.5 用台幣 32500 元結購美元                          # …DomainModelSteps.結購美元(BigDecimal,int)
+  那麼交易成功                                                # …DomainModelSteps.交易成功()
+  並且台幣帳戶餘額應為 67500 元                                 # …DomainModelSteps.驗證台幣餘額(int)
+  並且外幣帳戶的美元子帳餘額應為 1000 美元                        # …DomainModelSteps.驗證美元子帳餘額(int)
+```
+
+同時產出 `*/target/cucumber-report.html`，用瀏覽器打開可以看到彩色的通過／失敗清單。
+
+### 4-4. 同一步驟，兩種 Step Definition
 
 「假設 客戶持有信用卡 額度 50000 元」這一步——
 
@@ -489,6 +630,74 @@ public void 掛失() {
 | 規則的受測單位 | 只能整條 Service 流程一起測 | 聚合可單獨測，UseCase 另測編排 |
 | 測試與業務語言的距離 | Gherkin 說「掛失」，程式寫 `setStatus("B")` | Gherkin 說「掛失」，程式寫 `reportLost()` |
 | 需要的基礎設施 | DAO（真 DB 或 mock/in-memory） | 純物件即可；Repository 只在 UseCase 級測試出現 |
+
+### 4-5. 看懂一次失敗
+
+測試永遠通過，就無法確定它真的在驗證東西。動手把 `twd_account.feature` 的
+「存款入帳」期望值從 `5000` 改成 `9999`，再跑 `mvn test -pl domain-model-approach`：
+
+```
+場景: 存款入帳                                   # features/twd_account.feature:7
+  假設客戶 "C000001" 的台幣帳戶 "0011223344556" 餘額為 0 元
+  當存入台幣 5000 元
+  那麼台幣帳戶餘額應為 9999 元
+      org.opentest4j.AssertionFailedError: expected: <TWD 9999.00> but was: <TWD 5000.00>
+        at com.bank.domainmodel.bdd.DomainModelSteps.驗證台幣餘額(DomainModelSteps.java:144)
+        at ✽.台幣帳戶餘額應為 9999 元(classpath:features/twd_account.feature:10)
+
+[ERROR] Tests run: 8, Failures: 1, Errors: 0, Skipped: 0
+```
+
+失敗訊息從下往上讀最快：
+
+| 這一行 | 告訴你什麼 |
+|---|---|
+| `at ✽.台幣帳戶餘額應為 9999 元(...feature:10)` | ✽ 開頭的是 **Gherkin 那一行**——業務語言的失敗點（feature 檔第 10 行） |
+| `at ...DomainModelSteps.驗證台幣餘額(...:144)` | 對應的 **Step Definition** 方法與行號 |
+| `expected: <TWD 9999.00> but was: <TWD 5000.00>` | 期望值 vs 實際值。注意實際值是 **`TWD 5000.00`** 而不是裸的 `5000`——`Money` 把幣別一起印出來了 |
+
+> 對照 Data Model 側同一個失敗會印 `expected: <0> but was: <-1>`（`BigDecimal.compareTo` 的結果），
+> 看不出幣別、也看不出金額——這就是「型別有沒有語意」在**除錯體驗**上的差別。
+>
+> 看完記得把 `9999` 改回 `5000`。
+
+### 4-6. 動手練習
+
+依難度排序，每一題都能在 5～20 分鐘內完成：
+
+| # | 練習 | 要動的檔案 | 會學到什麼 |
+|---|---|---|---|
+| 1 | 把「存款入帳」的期望值改錯再改回來 | `features/twd_account.feature` | 測試真的有在驗證；看懂失敗訊息 |
+| 2 | 新增場景：**存款 0 元應被拒絕** | 兩個模組的 `*.feature` + 兩個 `*Steps.java` | Domain 側已有 `isPositive()` 檢查會直接通過；Data 側 `AccountServiceImpl.deposit()` **沒有這條檢查**——你得自己補 |
+| 3 | 新增場景：**外幣帳戶不可存入台幣** | 同上 | Domain 側 `ForeignCurrencyAccount.deposit()` 一行就擋掉；Data 側要在 `AccountServiceImpl` 補 `if`，而且**只擋得住走 Service 的路徑** |
+| 4 | 在 `DataModelDemo` 裡試著複製「資料洞」到 Domain 側：呼叫 `twdAccount.setBalance(-50000)` | `DomainModelDemo.java` | **編譯就失敗**——聚合沒有 setter。這是全專案最直觀的一課 |
+| 5 | 幫信用卡加「效期已過不可刷卡」場景 | `features/credit_card.feature` + Steps | Domain 側 `CreditCard.authorize()` 已有 `today.isAfter(expiry)` 檢查；Data 側 `CreditCardServiceImpl` **完全沒檢查 `expireDate`**——親眼看到「規則散落時會漏掉一條」 |
+
+> 練習 2、3、5 有個共同結果：**Domain Model 側常常不用改 prod. code 就綠燈，
+> Data Model 側則要回頭補 `if`**。這不是巧合——規則寫在聚合裡，
+> 新場景多半只是「驗證早就存在的不變量」；規則散在 Service 裡，新場景往往是「發現漏了一處」。
+
+新增場景的標準步驟：
+
+1. 在**兩個模組**的同名 `.feature` 檔加上場景（保持兩份完全相同，可用
+   `diff data-model-approach/src/test/resources/features/twd_account.feature domain-model-approach/src/test/resources/features/twd_account.feature`
+   檢查）。
+2. 跑 `mvn test`——若用到全新的步驟句型，Cucumber 會報錯並**直接給你待實作的標註**：
+
+   ```
+   io.cucumber.junit.platform.engine.UndefinedStepException:
+   The step '客戶 "C000001" 開立了一個尚未實作的帳戶 "0011223344556"' is undefined.
+   You can implement this step using the snippet(s) below:
+   @假設("客戶 {string} 開立了一個尚未實作的帳戶 {string}")
+   ```
+
+   > Cucumber 建議的是中文標註 `@假設`（來自 `io.cucumber.java.zh_tw`），
+   > 本專案則統一用英文的 `@Given` / `@When` / `@Then`（`io.cucumber.java.en`）——
+   > **兩種都能用**，句型字串一樣就會對上；跟著現有檔案的寫法即可。
+
+3. 把方法貼進 `DataModelSteps.java` 與 `DomainModelSteps.java`，各自實作
+   （`{string}` → `String` 參數、`{int}` → `int`、`{bigdecimal}` → `BigDecimal`）。
+4. 再跑 `mvn test`，直到兩邊都綠燈。
 
 ---
 
@@ -592,6 +801,10 @@ flowchart LR
 | **2. 另建讀模型表**（完整 CQRS） | 寫入表（聚合形狀）＋讀取表（查詢形狀、反正規化），以**領域事件／CDC／批次 ETL** 同步 | **最終一致**（有同步延遲） | 查詢量大、查詢形狀與寫入模型差很遠（客戶 360、跨系統彙總） |
 | **3. 批次直接操作寫入表** | 不另建表，SQL 集合運算直接更新 | 繞過了聚合，不變量**改由批次規則＋事後對帳**把關 | 日終計息、沖正、整批調帳 |
 
+> 這張表回答的是「**要不要分讀寫模型**」（＝ CQRS 的程度）；
+> 第 2 種一旦選下去，才會冒出第二個問題：「讀模型**用什麼機制**跟上寫模型？」
+> 那是下一小節的主題——兩個問題**不同層次，別混在一起選**。
+
 對應到本 repo：`InMemoryForeignCurrencyAccountRepository` 落地的
 `FX_ACCOUNT`＋`FX_SUB_ACCOUNT` 就是「寫入模型表」；若要做「客戶總覽」報表，
 正確做法**不是**載入三個聚合再組裝，而是直接
@@ -605,46 +818,113 @@ flowchart LR
 2. **批次繞過聚合是刻意的破例**，不是免費的——第 3 種方式等於暫時放棄模型保護，
    所以銀行實務上批次一定伴隨事後對帳（reconciliation）補上驗證。
 
-### 讀模型同步選型：CQRS？CDC？還是更簡單的方案？
+### 讀模型同步機制選型
 
-當第 1 種（共用表＋View）撐不住時，才需要在下面的階梯上往上爬。
-**原則：由簡到繁，被問題推著升級，不要預先套用重架構。**
+#### 先釐清一件常被混用的事：CQRS 與 CDC 不是同一層的東西
 
-| # | 方案 | 做法 | 一致性 | 事件語意 | 何時選它 |
+「該用 CQRS 還是 CDC？」是個**問錯的問題**——兩者不在同一個軸上，不能二選一：
+
+| | CQRS | CDC（Change Data Capture） |
+|---|---|---|
+| 是什麼 | **架構模式**（pattern） | **基礎設施機制**（工具／管線） |
+| 回答什麼問題 | 讀與寫**要不要**用不同的模型？ | 模型分開之後，讀模型**怎麼**跟上寫模型？ |
+| 落在哪一層 | 應用程式碼 + 資料設計（你自己寫） | DB 的 transaction log（binlog/WAL）+ 串流管線（掛工具） |
+| 誰負責 | 開發團隊的設計決策 | 平台／DBA 掛上 Debezium、GoldenGate、AWS DMS |
+| 對寫入端程式的影響 | 改變整個讀寫路徑的寫法 | **零侵入**，一行程式都不用改 |
+| 兩者關係 | 選了 CQRS，才會遇到「用什麼同步」 | **CDC 是那個問題的候選答案之一**；但用 CDC 的系統不一定在做 CQRS（餵資料倉儲、DB 遷移都用它） |
+
+拆成三個**彼此獨立**的決定會清楚很多：
+
+| 軸 | 決定什麼 | 選項 | 層級 |
+|---|---|---|---|
+| **① 要不要分讀寫模型** | 讀跟寫共用一套模型，還是各有各的 | 不分／**CQRS**（從共用表＋View 到獨立讀模型表，程度可調） | 架構模式 |
+| **② 訊息用什麼語言** | 變更傳出去時長什麼樣 | **領域事件**（`FxPurchased`）／**資料列變更**（`BALANCE: x→y`） | 契約設計 |
+| **③ 用什麼管道送** | 誰把變更搬到讀模型 | 同交易直接寫／DB 刷新（MV）／DB 複寫（replica）／應用程式 relay／**CDC** | 基礎設施 |
+
+**本節排的階梯是軸①＋軸③混在一起的實務組合**，軸②留到下一小節單獨談。
+原則：由簡到繁，被問題推著升級，不要預先套用重架構。
+
+| # | 方案 | 做法 | 一致性 | 訊息語意（軸②） | 何時選它 |
 |---|---|---|---|---|---|
-| 0 | **同庫 View / JOIN** | 查詢直接讀寫入表 | 強一致 | — | 預設；量與形狀都還撐得住 |
-| 1 | **Materialized View / 彙總表** | DB 定時或觸發刷新 | 秒~分級延遲 | — | 重彙總報表慢，但形狀還算接近 |
-| 2 | **讀取副本（Read Replica）** | DB 原生複寫，同 schema | 毫秒~秒級延遲 | — | 問題只是**讀壓力**，不是形狀 |
-| 3 | **同交易雙寫（同庫）** | 寫聚合時，同一個 DB 交易內順手更新讀表 | 強一致 | — | 讀表形狀不同但簡單、同一個庫；**跨庫雙寫是反模式**（部分失敗即分歧） |
+| 0 | **同庫 View / JOIN** | 查詢直接讀寫入表 | 強一致 | —（沒有訊息） | 預設；量與形狀都還撐得住 |
+| 1 | **Materialized View / 彙總表** | DB 定時或觸發刷新 | 秒~分級延遲 | —（DB 內部） | 重彙總報表慢，但形狀還算接近 |
+| 2 | **讀取副本（Read Replica）** | DB 原生複寫，同 schema | 毫秒~秒級延遲 | —（DB 內部） | 問題只是**讀壓力**，不是形狀 |
+| 3 | **同交易雙寫（同庫）** | 寫聚合時，同一個 DB 交易內順手更新讀表 | 強一致 | —（不出庫） | 讀表形狀不同但簡單、同一個庫；**跨庫雙寫是反模式**（部分失敗即分歧） |
 | 4 | **領域事件 + Outbox → 投影** | 聚合發布業務事件，事件與業務資料**同交易**寫入 outbox 表，relay 送出後由 projector 建讀模型 | 最終一致 | **業務語意**（`FxPurchased`） | 讀模型形狀差很遠；事件本身另有價值（通知、審計、下游整合）；新建系統 |
 | 5 | **CDC 抄寫**（Debezium/binlog） | 基礎設施層攔截**資料表列變更**，串流出去建讀模型 | 最終一致 | **資料列語意**（`FX_SUB_ACCOUNT` 某列 balance 變了） | **不能改或不想改寫入端程式**：舊核心、跨系統餵資料倉儲/客戶360 |
-| 6 | **Event Sourcing + CQRS** | 事件即事實來源，狀態靠重播，讀模型全部投影 | 最終一致 | 業務語意 | 審計/重播是硬需求的少數領域；成本最高，**不要當預設** |
+| 6 | **Event Sourcing**（＋讀模型投影） | 事件即事實來源，狀態靠重播 | 最終一致 | 業務語意 | ⚠️ **這其實是第四個軸**——它改的是「寫入端怎麼保存狀態」（存目前狀態 vs. 存事件日誌），不只是同步方式。審計/重播是硬需求時才用，成本最高，**不要當預設** |
 
-**CQRS vs. CDC 的關鍵差異不是技術，是「事件說什麼語言」**：
+#### 軸②的真正對比：領域事件 vs. CDC
 
-- 領域事件（方案 4）說**業務的語言**——「客戶用 32,500 台幣買了 1,000 美元」，
-  下游不需要懂你的表結構，寫入表怎麼重構都不影響消費者。
-- CDC（方案 5）說**資料表的語言**——「`FX_SUB_ACCOUNT` 第 N 列 `BALANCE` 從 x 變 y」，
-  零侵入、不用改寫入端一行程式，但消費者從此**耦合你的 schema**，寫入表一改就波及下游。
-  這其實就是本 repo 主題在同步機制上的重演：**方案 4 是 Domain Model 式的同步，方案 5 是 Data Model 式的同步**。
+這兩個才是**同一層**的對手——都是「把寫入端的變更送給下游」的做法，
+差別在**訊息說什麼語言**：
+
+| 面向 | 領域事件 + Outbox（方案 4） | CDC 抄寫（方案 5） |
+|---|---|---|
+| 誰產生訊息 | 應用程式**顯式**發布 | DB 的 transaction log **自動**產生 |
+| 所在層級 | 領域層／應用層 | 基礎設施層 |
+| 要不要改寫入端程式 | **要**（定義事件、寫 outbox） | **不用**（零侵入，舊核心也能接） |
+| 訊息內容 | 一個業務事實：<br>`FxPurchased{客戶, TWD 32500, USD 1000, rate 32.5}` | 一列資料的前後值：<br>`TWD_ACCOUNT.BALANCE: 100000 → 67500`；`FX_SUB_ACCOUNT` INSERT… |
+| 一個業務動作 = 幾則訊息 | **1 則**（跨幾張表是內部細節） | **N 則**（一表一列一則，下游得靠交易 ID 自己拼回去） |
+| 下游耦合什麼 | **事件契約**——可版本化、可演進 | **資料表 schema**——改欄位就波及所有消費者 |
+| 寫入表重構的自由度 | 事件契約不變則下游無感 | 高風險，要先協調所有下游 |
+| 漏訊息的風險 | 靠 Outbox 與業務資料**同一交易**擋掉<br>（不走 Outbox 而「先寫 DB 再發事件」＝中途掛掉就資料有、事件沒有） | 讀的是**已提交的 log**，來源端天生不漏 |
+| 順序保證 | 要自己設計（partition key） | 單庫 log 天生全序（下游一旦分區仍要自己保序） |
+| 意圖是否保留 | 保留：`FxPurchaseReversed` 說得出「這是沖正」 | 遺失：只看到 `UPDATE`／`DELETE`，為什麼改不知道 |
+| 典型工具 | 應用程式 + Kafka/MQ + relay | Debezium、Oracle GoldenGate、AWS DMS |
+| 典型用途 | 微服務整合、通知、審計軌跡 | 餵資料倉儲/資料湖、客戶 360、監理報送、DB 遷移 |
+
+> **軸②正是本 repo 主題在同步機制上的重演**：
+> 領域事件是 **Domain Model 式的同步**——訊息講業務概念，下游不必懂你的表；
+> 資料列變更是 **Data Model 式的同步**——訊息講資料表，下游從此綁死你的 schema。
+> 跟第三節「`AccountDO` 外洩到 API 契約、改表即改 API」是完全一樣的病理，只是換到了系統之間。
+
+#### 兩者可以疊起來用——這正是「假對立」的證據
+
+CDC 是**管道**（軸③），Outbox 決定**內容**（軸②），兩件事互不衝突。
+Debezium 的 **Outbox Event Router** 就是標準做法：
+
+```
+應用程式（同一個 DB 交易）
+   ├─ 寫業務資料 → TWD_ACCOUNT / FX_SUB_ACCOUNT
+   └─ 寫領域事件 → OUTBOX 表（{eventType:"FxPurchased", payload:{...}}）
+                          │
+                          ▼  CDC 只抄 OUTBOX 這一張表
+                     Debezium
+                          │
+                          ▼
+              下游收到的是 FxPurchased，不是列變更
+```
+
+這樣同時拿到兩邊的好處：**不必自建 relay、來源端天生不漏、單庫天生有序**（來自 CDC 這個管道），
+加上**業務語意與可演進的契約**（來自領域事件這個內容）。
+所以真正要做的是三個獨立決定——①分不分讀寫模型、②訊息講什麼語言、③用什麼管道送——
+而不是在「CQRS」和「CDC」之間二選一。
 
 ```mermaid
 flowchart TD
-    A[查詢撐不住了？] -->|只是讀壓力大| R[2 讀取副本]
-    A -->|彙總報表慢| M[1 Materialized View]
+    A[查詢撐不住了？] -->|只是讀壓力大| R["2 讀取副本"]
+    A -->|彙總報表慢| M["1 Materialized View"]
     A -->|讀的形狀差很遠| B{寫入端能改程式嗎？}
-    B -->|能，且事件有業務價值| O["4 領域事件 + Outbox"]
-    B -->|不能改（舊核心/跨系統）| C[5 CDC 抄寫]
-    O --> E{審計重播是硬需求？}
-    E -->|是，且願付出成本| ES[6 Event Sourcing]
+    B -->|不能改：舊核心/跨系統| C["5 CDC 抄列變更<br/>軸②：資料表語言"]
+    B -->|能改| D{下游需要業務語意嗎？}
+    D -->|不需要，只要資料| C
+    D -->|需要| O["4 領域事件 + Outbox<br/>軸②：業務語言"]
+    O --> H{軸③ 用什麼管道送？}
+    H -->|自建 relay| MQ["應用程式推 MQ"]
+    H -->|沿用既有 CDC 基礎設施| HY["Outbox + CDC 混搭<br/>CDC 當管道、事件當內容"]
+    MQ --> E{審計重播是硬需求？}
+    HY --> E
+    E -->|是，且願付出成本| ES["6 Event Sourcing（另一個軸）"]
     E -->|否| STOP[到此為止]
 ```
 
 **銀行實務的典型組合**：核心帳務同庫 View＋批次彙總表（方案 0/1）；
-餵資料倉儲、客戶 360、監理報送用 CDC（方案 5）；
-新一代微服務核心的跨服務整合用 Outbox 事件（方案 4）。
+餵資料倉儲、客戶 360、監理報送用 CDC（方案 5）——這裡下游要的就是資料，列語意剛好夠用；
+新一代微服務核心的跨服務整合用 Outbox 事件（方案 4）——這裡下游要的是業務事實。
 三者並存，各管一段——和本節開頭「寫入走 Domain Model、查詢走 Data Model」是同一個道理：
 **按路徑選工具，而不是全系統押一種**。
+注意這三者是**同一個系統裡不同路徑的選擇**，不是互斥的架構流派之爭。
 
 最後一個銀行特有的約束：**客戶「讀自己剛寫的」必須強一致**
 （轉完帳馬上看餘額，不能顯示舊值）——這條路徑要嘛走同庫查詢（方案 0），
@@ -652,7 +932,39 @@ flowchart TD
 
 ---
 
-## 七、延伸閱讀
+## 七、名詞速查表
+
+第一次接觸這些詞的話，配上「本專案的哪個檔案」來記最快：
+
+| 名詞 | 一句話解釋 | 在本專案看哪裡 |
+|---|---|---|
+| **Data Model（資料模型）** | 從「資料怎麼存」出發的設計；物件是資料表的鏡射 | [`schema.sql`](data-model-approach/schema.sql)、`entity/*DO.java` |
+| **Domain Model（領域模型）** | 從「業務是什麼」出發的設計；物件有行為、守規則 | `domain/model/` |
+| **貧血模型（Anemic Model）** | 只有 getter/setter、沒有行為的物件；規則被迫外移到 Service | [`AccountDO`](data-model-approach/src/main/java/com/bank/datamodel/entity/AccountDO.java) |
+| **Transaction Script** | 一支方法從頭到尾做完一筆交易（載入→檢查→計算→寫回）的寫法 | [`FxServiceImpl`](data-model-approach/src/main/java/com/bank/datamodel/service/impl/FxServiceImpl.java) |
+| **聚合（Aggregate）/ 聚合根** | 一組必須一起維持一致的物件，對外只有一個入口 | `TwdAccount`、`ForeignCurrencyAccount`、`CreditCard` |
+| **不變量（Invariant）** | 這個物件**永遠**必須成立的條件（如「餘額不可為負」） | `TwdAccount.withdraw()` 裡的檢查 |
+| **Value Object（值物件）** | 沒有身分、不可變、以值相等的小物件 | [`Money`](domain-model-approach/src/main/java/com/bank/domainmodel/domain/model/shared/Money.java)、`ExchangeRate`、`AccountNumber` |
+| **Entity vs. Value Object** | Entity 有 ID、會變化（帳戶）；VO 沒有 ID、換值就換物件（金額） | `TwdAccount`（Entity）↔ `Money`（VO） |
+| **DAO** | 資料表存取物件，**一個 DAO ↔ 一張表**，傳「一列」 | [`AccountDao`](data-model-approach/src/main/java/com/bank/datamodel/dao/AccountDao.java) |
+| **Repository** | 聚合的收納櫃，**一個 Repository ↔ 一個聚合**，傳「整個聚合」 | [`ForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/domain/repository/ForeignCurrencyAccountRepository.java) |
+| **Domain Service** | 橫跨多個聚合、不屬於任何一邊的業務流程 | [`CurrencyExchangeService`](domain-model-approach/src/main/java/com/bank/domainmodel/domain/service/CurrencyExchangeService.java) |
+| **Application Service / Use Case** | 只做編排（載入→呼叫領域行為→存回→轉 DTO），本身沒有業務規則 | [`BuyForeignCurrencyService`](domain-model-approach/src/main/java/com/bank/domainmodel/application/service/BuyForeignCurrencyService.java) |
+| **Port（埠）/ Adapter（配接器）** | Port 是核心定義的介面；Adapter 是外界的實作。輸入 Port＝進來的入口，輸出 Port＝出去的出口 | `application/port/in/`、`domain/repository/` ↔ `adapter/` |
+| **六角架構 / Ports & Adapters** | 讓所有相依箭頭都指向核心的分層方式，Web 與 DB 都只是可抽換的配接器 | 第三節的 Class Diagram |
+| **DIP（依賴反轉）** | 高層不依賴低層實作，兩者都依賴抽象 | Controller → Service 介面；Repository 實作 → 領域層介面 |
+| **組裝根（Composition Root）** | 整個程式裡**唯一**同時認識介面與實作、負責 `new` 出來接起來的地方 | 兩支 Demo 的 `main()`（實務上是 Spring 的 DI 容器） |
+| **DTO** | 純傳輸用的資料袋，沒有行為；用來讓 API 契約與內部模型脫鉤 | `BuyForeignCurrencyUseCase.Result` |
+| **BDD / Gherkin / Cucumber** | 用業務語言寫測試案例的方法／語法／工具 | `*.feature` ／ `*Steps.java` |
+| **CQRS** | **架構模式**：寫入與查詢分成兩條路徑，各自用最適合的模型。只決定「分不分」，不決定「怎麼同步」 | 第六節（軸①） |
+| **領域事件（Domain Event）** | 已經發生的業務事實，用業務語言表達（`FxPurchased`）；下游不必懂你的表結構 | 第六節（軸②） |
+| **Outbox 模式** | 把事件與業務資料**寫進同一個 DB 交易**，避免「資料寫了但事件沒發出去」 | 第六節方案 4 |
+| **CDC** | **基礎設施機制**：從 DB 的 transaction log 攔截「資料列變更」串流出去。是同步的**管道**，可用來實作 CQRS，也可用在跟 CQRS 無關的場合 | 第六節（軸③）方案 5 |
+| **Event Sourcing** | 不存「目前狀態」而存「事件日誌」，狀態靠重播得出。與 CQRS 常同時出現但**是獨立的決定** | 第六節方案 6 |
+
+---
+
+## 八、延伸閱讀
 
 - Eric Evans, *Domain-Driven Design*（藍皮書）— 聚合、Value Object、Repository 的出處
 - Martin Fowler, *Patterns of Enterprise Application Architecture* — Transaction Script vs. Domain Model 兩個模式的原始定義
