@@ -17,7 +17,11 @@ import java.time.LocalDate;
  * Controller → Service 介面（Transaction Script 實作）→ DAO 介面（一表一 DAO）。
  *
  * 執行方式（在 data-model-approach/ 下）：
- *   javac -d out $(find src -name '*.java')
+ *   mvn compile
+ *   java -cp target/classes com.bank.datamodel.demo.DataModelDemo
+ *
+ * 不用 Maven 的話（只編譯 main，test 需要 Cucumber 相依）：
+ *   javac -d out $(find src/main -name '*.java')
  *   java -cp out com.bank.datamodel.demo.DataModelDemo
  */
 public class DataModelDemo {

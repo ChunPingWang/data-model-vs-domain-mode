@@ -26,7 +26,11 @@ import java.time.YearMonth;
  *             → 輸出 Port 介面（Repository）← Infrastructure 實作。
  *
  * 執行方式（在 domain-model-approach/ 下）：
- *   javac -d out $(find src -name '*.java')
+ *   mvn compile
+ *   java -cp target/classes com.bank.domainmodel.bootstrap.DomainModelDemo
+ *
+ * 不用 Maven 的話（只編譯 main，test 需要 Cucumber 相依）：
+ *   javac -d out $(find src/main -name '*.java')
  *   java -cp out com.bank.domainmodel.bootstrap.DomainModelDemo
  */
 public class DomainModelDemo {

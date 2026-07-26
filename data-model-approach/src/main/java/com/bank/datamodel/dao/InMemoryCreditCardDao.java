@@ -19,6 +19,7 @@ public class InMemoryCreditCardDao implements CreditCardDao {
         creditCardTable.put(card.getCardNo(), card);
     }
 
+    @Override
     public void insert(CreditCardDO card) {
         creditCardTable.put(card.getCardNo(), card);
     }

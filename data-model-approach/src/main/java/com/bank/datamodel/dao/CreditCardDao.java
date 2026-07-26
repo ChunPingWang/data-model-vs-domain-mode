@@ -7,4 +7,6 @@ public interface CreditCardDao {
     CreditCardDO findByCardNo(String cardNo);
 
     void update(CreditCardDO card);
+
+    void insert(CreditCardDO card);
 }
