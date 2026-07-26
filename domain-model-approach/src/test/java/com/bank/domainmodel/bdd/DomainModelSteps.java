@@ -3,7 +3,8 @@ package com.bank.domainmodel.bdd;
 import com.bank.domainmodel.account.AccountNumber;
 import com.bank.domainmodel.account.ForeignCurrencyAccount;
 import com.bank.domainmodel.account.TwdAccount;
-import com.bank.domainmodel.application.BuyForeignCurrencyUseCase;
+import com.bank.domainmodel.application.BuyForeignCurrencyService;
+import com.bank.domainmodel.application.port.in.BuyForeignCurrencyUseCase;
 import com.bank.domainmodel.card.CardNumber;
 import com.bank.domainmodel.card.CreditCard;
 import com.bank.domainmodel.customer.CustomerId;
@@ -39,7 +40,7 @@ public class DomainModelSteps {
     private final InMemoryForeignCurrencyAccountRepository fxRepo =
             new InMemoryForeignCurrencyAccountRepository();
     private final BuyForeignCurrencyUseCase buyFxUseCase =
-            new BuyForeignCurrencyUseCase(twdRepo, fxRepo, new CurrencyExchangeService());
+            new BuyForeignCurrencyService(twdRepo, fxRepo, new CurrencyExchangeService());
 
     private String twdAccountNo;
     private String fxAccountNo;

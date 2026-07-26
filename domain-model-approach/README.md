@@ -8,7 +8,9 @@
 
 | 套件 | 內容 | DDD 構件 |
 |---|---|---|
-| `application/` | `BuyForeignCurrencyUseCase`（Command in / DTO out，對前端唯一窗口） | Application Service |
+| `web/` | `FxPurchaseController`：**只依賴輸入 Port 介面**，不認識實作與聚合 | Web Adapter |
+| `application/port/in/` | `BuyForeignCurrencyUseCase`（介面，Command in / DTO out） | Inbound Port |
+| `application/` | `BuyForeignCurrencyService`：輸入 Port 的實作，只編排 | Application Service |
 | `shared/` | `Money`、`ExchangeRate` | Value Object |
 | `customer/` | `Customer`、`CustomerId`、`ContactInfo` | Aggregate Root / VO |
 | `account/` | `TwdAccount`、`ForeignCurrencyAccount`、`AccountNumber` | Aggregate Root / VO |

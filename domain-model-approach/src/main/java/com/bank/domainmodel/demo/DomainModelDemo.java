@@ -4,7 +4,9 @@ import com.bank.domainmodel.account.AccountNumber;
 import com.bank.domainmodel.account.ForeignCurrencyAccount;
 import com.bank.domainmodel.account.InsufficientBalanceException;
 import com.bank.domainmodel.account.TwdAccount;
-import com.bank.domainmodel.application.BuyForeignCurrencyUseCase;
+import com.bank.domainmodel.application.BuyForeignCurrencyService;
+import com.bank.domainmodel.application.port.in.BuyForeignCurrencyUseCase;
+import com.bank.domainmodel.web.FxPurchaseController;
 import com.bank.domainmodel.card.CardNumber;
 import com.bank.domainmodel.card.CreditCard;
 import com.bank.domainmodel.card.CreditLimitExceededException;
@@ -19,8 +21,9 @@ import java.math.BigDecimal;
 import java.time.YearMonth;
 
 /**
- * Domain Model 途徑端到端驗證：
- * UseCase（Application Service）→ 聚合/Domain Service → Repository（一聚合一 Repository）。
+ * Domain Model 途徑端到端驗證（相依方向嚴格遵守 DIP）：
+ * Web Adapter → 輸入 Port 介面 ← Application Service
+ *             → 輸出 Port 介面（Repository）← Infrastructure 實作。
  *
  * 執行方式（在 domain-model-approach/ 下）：
  *   javac -d out $(find src -name '*.java')
@@ -29,10 +32,12 @@ import java.time.YearMonth;
 public class DomainModelDemo {
 
     public static void main(String[] args) {
+        // 組裝根（Composition Root）：唯一同時認識介面與實作的地方
         InMemoryTwdAccountRepository twdRepo = new InMemoryTwdAccountRepository();
         InMemoryForeignCurrencyAccountRepository fxRepo = new InMemoryForeignCurrencyAccountRepository();
-        BuyForeignCurrencyUseCase useCase = new BuyForeignCurrencyUseCase(
+        BuyForeignCurrencyUseCase useCase = new BuyForeignCurrencyService(
                 twdRepo, fxRepo, new CurrencyExchangeService());
+        FxPurchaseController controller = new FxPurchaseController(useCase);
 
         CustomerId customer = new CustomerId("C000001");
         TwdAccount twdAccount = new TwdAccount(new AccountNumber("0011223344556"), customer);
@@ -41,9 +46,8 @@ public class DomainModelDemo {
         fxRepo.save(new ForeignCurrencyAccount(new AccountNumber("0099887766554"), customer));
 
         System.out.println("=== [正常流程] 台幣 32,500 結購美元（匯率 32.5）===");
-        BuyForeignCurrencyUseCase.Result result = useCase.execute(
-                new BuyForeignCurrencyUseCase.Command(
-                        "0011223344556", "0099887766554", "32500", "USD", new BigDecimal("32.5")));
+        BuyForeignCurrencyUseCase.Result result = controller.purchase(
+                "0011223344556", "0099887766554", "32500", "USD", new BigDecimal("32.5"));
         System.out.println("前端拿到的回應（語意化 DTO，與資料表結構脫鉤）：");
         System.out.println("  " + result);
         System.out.println("Repository 落地結果（一個聚合寫入兩張表）：");

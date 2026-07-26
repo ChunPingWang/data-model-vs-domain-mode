@@ -24,7 +24,10 @@
 └── domain-model-approach/        # 領域導向：聚合 + Value Object + Domain Service
     └── src
         ├── main/.../domainmodel/
-        │   ├── application/      #   UseCase（對前端唯一窗口，回傳 DTO）
+        │   ├── web/              #   FxPurchaseController —— 只依賴輸入 Port「介面」
+        │   ├── application/
+        │   │   ├── port/in/      #   BuyForeignCurrencyUseCase 輸入 Port（介面）
+        │   │   └── ...           #   BuyForeignCurrencyService（Port 實作，只編排）
         │   ├── shared/           #   Money / ExchangeRate（Value Object）
         │   ├── customer/ account/ card/  # 聚合：規則的家
         │   ├── service/          #   跨聚合的 Domain Service
@@ -193,24 +196,144 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant UI as 前端
-    participant U as BuyForeignCurrencyUseCase<br/>(Application Service)
+    participant C as FxPurchaseController<br/>(Web Adapter，只依賴輸入 Port 介面)
+    participant U as BuyForeignCurrencyService<br/>(輸入 Port 的實作)
     participant A as TwdAccount / FxAccount<br/>(聚合) + ExchangeRate(VO)
-    participant R as Repository<br/>(一聚合一 Repository)
-    UI->>U: Command(帳號、金額、幣別、匯率)
+    participant R as Repository<br/>(輸出 Port 介面，一聚合一 Repository)
+    UI->>C: POST /fx/purchase
+    C->>U: execute(Command) — 透過介面呼叫
     U->>R: findByAccountNumber() → 完整聚合
     U->>A: rate.convert() / from.withdraw() / to.deposit()
     Note over A: 規則在模型裡：<br/>餘額不足、幣別不符、凍結 → 聚合自己擋
     U->>R: save(整個聚合)
     Note over R: 內部拆寫 FX_ACCOUNT 主檔<br/>+ FX_SUB_ACCOUNT 每幣別一列
-    U-->>UI: Result DTO（語意化欄位，與表結構脫鉤）
+    U-->>C: Result DTO
+    C-->>UI: Result DTO（語意化欄位，與表結構脫鉤）
 ```
+
+### Class Diagram：相依方向是兩張圖的分水嶺
+
+**Data Model 途徑（對照組）**——箭頭一路向下穿透，最終全部依賴資料表形狀；
+前端依賴 Service「實作」，`AccountDO`（＝ACCOUNT 表的鏡射）還外洩到 API 契約：
+
+```mermaid
+classDiagram
+    direction TB
+    class AccountController {
+        <<Web>>
+        +getAccount(no) AccountDO
+        +buyForeignCurrency(...)
+    }
+    class BankingService {
+        <<Transaction Script>>
+        +deposit() / withdraw()
+        +buyForeignCurrency()
+        +chargeCreditCard()
+    }
+    class AccountDao {
+        <<interface·一表一DAO>>
+        +findByAccountNo(String) AccountDO
+        +update(AccountDO)
+    }
+    class InMemoryAccountDao {
+        <<Persistence>>
+    }
+    class AccountDO {
+        <<ACCOUNT 表鏡射>>
+        +getBalance() / setBalance()
+        +getAcctType() : "01"/"02"/"03"
+    }
+    AccountController --> BankingService : 依賴「實作」(違反 DIP)
+    AccountController --> AccountDO : DO 外洩到 API
+    BankingService --> AccountDao : 傳「一列」
+    BankingService --> AccountDO : 直接 get/set 欄位
+    InMemoryAccountDao ..|> AccountDao
+    InMemoryAccountDao --> AccountDO
+```
+
+**Domain Model 途徑（嚴格 SOLID）**——前端 Adapter 與 Repository 實作**都指向核心**：
+Web 依賴輸入 Port「介面」，Infrastructure 實作輸出 Port「介面」；
+核心（application + domain）不 import 任何 Adapter，兩端可獨立抽換：
+
+```mermaid
+classDiagram
+    direction TB
+    class FxPurchaseController {
+        <<Web Adapter>>
+        -useCase : BuyForeignCurrencyUseCase
+        +purchase(...) Result
+    }
+    class BuyForeignCurrencyUseCase {
+        <<Inbound Port · interface>>
+        +execute(Command) Result
+    }
+    class BuyForeignCurrencyService {
+        <<Application Service>>
+        +execute(Command) Result
+    }
+    class CurrencyExchangeService {
+        <<Domain Service>>
+        +buyForeignCurrency(from, to, twd, rate) Money
+    }
+    class TwdAccount {
+        <<Aggregate Root>>
+        +withdraw(Money)
+    }
+    class ForeignCurrencyAccount {
+        <<Aggregate Root>>
+        +deposit(Money)
+    }
+    class TwdAccountRepository {
+        <<Outbound Port · interface>>
+        +findByAccountNumber(..) TwdAccount
+        +save(TwdAccount)
+    }
+    class ForeignCurrencyAccountRepository {
+        <<Outbound Port · interface>>
+        +save(ForeignCurrencyAccount)
+    }
+    class InMemoryTwdAccountRepository {
+        <<Persistence Adapter>>
+    }
+    class InMemoryForeignCurrencyAccountRepository {
+        <<Persistence Adapter>>
+        FX_ACCOUNT + FX_SUB_ACCOUNT
+    }
+    FxPurchaseController ..> BuyForeignCurrencyUseCase : 只依賴介面 (DIP)
+    BuyForeignCurrencyUseCase <|.. BuyForeignCurrencyService : 實作
+    BuyForeignCurrencyService ..> TwdAccountRepository : 只依賴介面
+    BuyForeignCurrencyService ..> ForeignCurrencyAccountRepository : 只依賴介面
+    BuyForeignCurrencyService ..> CurrencyExchangeService : 編排
+    CurrencyExchangeService ..> TwdAccount
+    CurrencyExchangeService ..> ForeignCurrencyAccount
+    TwdAccountRepository <|.. InMemoryTwdAccountRepository : 實作 (DIP)
+    ForeignCurrencyAccountRepository <|.. InMemoryForeignCurrencyAccountRepository : 實作 (DIP)
+    TwdAccountRepository ..> TwdAccount : save(聚合)
+    ForeignCurrencyAccountRepository ..> ForeignCurrencyAccount : save(聚合)
+```
+
+實際 import 驗證（程式碼與圖一致）：
+
+- [`FxPurchaseController`](domain-model-approach/src/main/java/com/bank/domainmodel/web/FxPurchaseController.java) 只 import `application.port.in.BuyForeignCurrencyUseCase`——不認識 Service 實作、聚合、Repository。
+- [`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/infrastructure/persistence/InMemoryForeignCurrencyAccountRepository.java) 只 import 領域層（Repository 介面＋聚合）——不認識 application 與 web。
+- 介面與實作只在**組裝根**（[`DomainModelDemo`](domain-model-approach/src/main/java/com/bank/domainmodel/demo/DomainModelDemo.java) 的 main、或 Spring 的 DI 容器）相遇。
+
+### SOLID 逐條對應
+
+| 原則 | 落在哪裡 | Data Model 途徑的對照 |
+|---|---|---|
+| **S**RP | Controller 只轉譯、Service 只編排、聚合只守自己的規則、Repository 實作只管存取 | `BankingService` 同時做檢查＋計算＋跨表寫入，三種業務混在一個類別 |
+| **O**CP | 加「數位帳戶」＝新增聚合＋新 Repository，既有類別不改 | 加 `ACCT_TYPE=04` 要回頭改每個 if/else |
+| **L**SP | 任何 `TwdAccountRepository` 實作（in-memory/JPA/JDBC）可互換，UseCase 行為不變——BDD 測試就是替換證明 | DAO 可替換，但規則在 Service，換儲存仍綁死表結構 |
+| **I**SP | 一個 Use Case 一個輸入 Port；一個聚合一個輸出 Port，沒有萬用大介面 | `BankingService` 是萬用入口，呼叫端被迫依賴用不到的方法 |
+| **D**IP | **前端依賴輸入 Port 介面；Repository 實作依賴輸出 Port 介面**——高低階模組都依賴抽象，箭頭全部指向核心 | Controller 依賴 Service 實作、全體依賴 `AccountDO`＝依賴資料表 |
 
 ### 逐層對照（每一格都有對應的程式檔可驗證）
 
 | 層 | Data Model 途徑 | Domain Model 途徑 |
 |---|---|---|
-| **前端呈現** | [`AccountController`](data-model-approach/src/main/java/com/bank/datamodel/web/AccountController.java) 把 `AccountDO` 原樣回傳：畫面拿到 `acctType:"03"`、`status:"A"`，自己查碼表翻譯。**API 契約 = 資料表 schema**，改表即改 API | [`BuyForeignCurrencyUseCase.Result`](domain-model-approach/src/main/java/com/bank/domainmodel/application/BuyForeignCurrencyUseCase.java) 回傳語意化 DTO（`purchasedFxAmount: "USD 1000.00"`）。聚合不外洩，**API 契約與儲存結構脫鉤** |
-| **Business Layer** | `BankingService` 一支 Transaction Script 做完載入、檢查、計算、寫回；規則跨方法重複 | UseCase 只編排（載入→呼叫領域行為→存回→轉 DTO）；規則在聚合與 `ExchangeRate` 裡，各寫一次 |
+| **前端呈現** | [`AccountController`](data-model-approach/src/main/java/com/bank/datamodel/web/AccountController.java) 依賴 Service **實作**，把 `AccountDO` 原樣回傳：畫面拿到 `acctType:"03"`、`status:"A"`，自己查碼表翻譯。**API 契約 = 資料表 schema**，改表即改 API | [`FxPurchaseController`](domain-model-approach/src/main/java/com/bank/domainmodel/web/FxPurchaseController.java) 只依賴[輸入 Port 介面](domain-model-approach/src/main/java/com/bank/domainmodel/application/port/in/BuyForeignCurrencyUseCase.java)，回傳語意化 DTO（`purchasedFxAmount: "USD 1000.00"`）。聚合不外洩，**API 契約與儲存結構脫鉤** |
+| **Business Layer** | `BankingService` 一支 Transaction Script 做完載入、檢查、計算、寫回；規則跨方法重複 | [`BuyForeignCurrencyService`](domain-model-approach/src/main/java/com/bank/domainmodel/application/BuyForeignCurrencyService.java) 實作輸入 Port、只編排（載入→呼叫領域行為→存回→轉 DTO）；規則在聚合與 `ExchangeRate` 裡，各寫一次 |
 | **Repository Layer** | **一個 DAO ↔ 一張表**，傳輸單位是「一列 DO」；跨表一致性由 Service 呼叫兩次 `update()` 自行維持 | **一個 Repository ↔ 一個聚合**，`save()` 傳入**整個聚合**；[`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/infrastructure/persistence/InMemoryForeignCurrencyAccountRepository.java) 內部拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表，呼叫端毫不知情 |
 
 > **Repository 粒度是兩者最本質的差異之一**：
