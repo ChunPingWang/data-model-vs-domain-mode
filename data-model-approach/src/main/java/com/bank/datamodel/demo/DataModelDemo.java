@@ -3,15 +3,18 @@ package com.bank.datamodel.demo;
 import com.bank.datamodel.dao.InMemoryAccountDao;
 import com.bank.datamodel.dao.InMemoryCreditCardDao;
 import com.bank.datamodel.entity.AccountDO;
-import com.bank.datamodel.service.BankingService;
+import com.bank.datamodel.service.AccountService;
+import com.bank.datamodel.service.FxService;
+import com.bank.datamodel.service.impl.AccountServiceImpl;
+import com.bank.datamodel.service.impl.FxServiceImpl;
 import com.bank.datamodel.web.AccountController;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * Data Model 途徑端到端驗證：
- * Controller → BankingService（Transaction Script）→ DAO（一表一 DAO）。
+ * Data Model 途徑端到端驗證（三層式，SOLID 版）：
+ * Controller → Service 介面（Transaction Script 實作）→ DAO 介面（一表一 DAO）。
  *
  * 執行方式（在 data-model-approach/ 下）：
  *   javac -d out $(find src -name '*.java')
@@ -20,10 +23,12 @@ import java.time.LocalDate;
 public class DataModelDemo {
 
     public static void main(String[] args) {
+        // 組裝根：Controller 只拿到介面
         InMemoryAccountDao accountDao = new InMemoryAccountDao();
         InMemoryCreditCardDao cardDao = new InMemoryCreditCardDao();
-        BankingService service = new BankingService(accountDao, cardDao);
-        AccountController controller = new AccountController(accountDao, service);
+        AccountService accountService = new AccountServiceImpl(accountDao);
+        FxService fxService = new FxServiceImpl(accountDao);
+        AccountController controller = new AccountController(accountService, fxService);
 
         accountDao.insert(newAccount("0011223344556", "C000001", "01", "TWD", "100000"));
         accountDao.insert(newAccount("0099887766554", "C000001", "03", "USD", "0"));
@@ -42,7 +47,7 @@ public class DataModelDemo {
         System.out.println();
         System.out.println("=== [防線示範] Service 有檢查的路徑，擋得住 ===");
         try {
-            service.withdraw("0011223344556", new BigDecimal("999999"));
+            accountService.withdraw("0011223344556", new BigDecimal("999999"));
         } catch (IllegalStateException e) {
             System.out.println("  提款超過餘額 → 被 Service 擋下：" + e.getMessage());
         }

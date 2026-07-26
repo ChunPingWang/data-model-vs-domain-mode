@@ -1,40 +1,37 @@
 package com.bank.datamodel.web;
 
-import com.bank.datamodel.dao.AccountDao;
 import com.bank.datamodel.entity.AccountDO;
-import com.bank.datamodel.service.BankingService;
+import com.bank.datamodel.service.AccountService;
+import com.bank.datamodel.service.FxService;
 
 import java.math.BigDecimal;
 
 /**
- * Data Model 途徑的前端進入點（示意；實務上是 @RestController）。
+ * 三層式的 Presentation Layer（示意；實務上是 @RestController）。
  *
- * 典型寫法：查詢直接把 DO 序列化回前端 ——
- * 資料表的形狀一路穿透到畫面，ACCT_TYPE="03"、STATUS="A" 這些碼值
- * 由前端自行對照碼表翻譯成「外幣活存」「正常」。
- * 副作用：API 契約 = 資料表 schema，改表就是改 API。
+ * SOLID 版本：只依賴 Service「介面」（DIP），不再直接碰 DAO。
+ * 但 Data Model 範式的本質仍在——getAccount() 回傳的是資料表鏡射的
+ * AccountDO，ACCT_TYPE="03"、STATUS="A" 這些碼值由前端自行翻譯，
+ * API 契約仍然等於資料表 schema。
  */
 public class AccountController {
 
-    private final AccountDao accountDao;
-    private final BankingService bankingService;
+    private final AccountService accountService;   // 介面，不是實作
+    private final FxService fxService;             // 介面，不是實作
 
-    public AccountController(AccountDao accountDao, BankingService bankingService) {
-        this.accountDao = accountDao;
-        this.bankingService = bankingService;
+    public AccountController(AccountService accountService, FxService fxService) {
+        this.accountService = accountService;
+        this.fxService = fxService;
     }
 
     /** GET /accounts/{accountNo} —— 回傳值就是資料表的一列。 */
     public AccountDO getAccount(String accountNo) {
-        return accountDao.findByAccountNo(accountNo);
+        return accountService.getAccount(accountNo);
     }
 
-    /**
-     * POST /fx/purchase —— 參數全是字串與裸數字，
-     * 帳號傳反、金額幣別對不上，要到執行期（甚至對帳時）才會發現。
-     */
+    /** POST /fx/purchase —— 參數全是字串與裸數字，帳號傳反要到執行期才發現。 */
     public void buyForeignCurrency(String twdAccountNo, String fxAccountNo,
                                    BigDecimal twdAmount, BigDecimal exchangeRate) {
-        bankingService.buyForeignCurrency(twdAccountNo, fxAccountNo, twdAmount, exchangeRate);
+        fxService.buyForeignCurrency(twdAccountNo, fxAccountNo, twdAmount, exchangeRate);
     }
 }

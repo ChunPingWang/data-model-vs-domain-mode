@@ -4,7 +4,12 @@ import com.bank.datamodel.dao.InMemoryAccountDao;
 import com.bank.datamodel.dao.InMemoryCreditCardDao;
 import com.bank.datamodel.entity.AccountDO;
 import com.bank.datamodel.entity.CreditCardDO;
-import com.bank.datamodel.service.BankingService;
+import com.bank.datamodel.service.AccountService;
+import com.bank.datamodel.service.CreditCardService;
+import com.bank.datamodel.service.FxService;
+import com.bank.datamodel.service.impl.AccountServiceImpl;
+import com.bank.datamodel.service.impl.CreditCardServiceImpl;
+import com.bank.datamodel.service.impl.FxServiceImpl;
 
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
@@ -24,14 +29,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 對照 DomainModelSteps 可看出兩個成本：
  *  1. Given 要手工組裝資料列（acctType="01"、status="A"、currency="TWD"…），
  *     測試被迫知道欄位碼這種「資料表方言」。
- *  2. 業務規則長在 BankingService 上，所有場景都得經過 Service + DAO 才測得到；
+ *  2. 業務規則長在 Service 實作（Transaction Script）上，
+ *     所有場景都得經過 Service + DAO 才測得到；
  *     Domain Model 側的規則長在聚合上，可以直接對物件測。
  */
 public class DataModelSteps {
 
     private final InMemoryAccountDao accountDao = new InMemoryAccountDao();
     private final InMemoryCreditCardDao cardDao = new InMemoryCreditCardDao();
-    private final BankingService service = new BankingService(accountDao, cardDao);
+    private final AccountService accountService = new AccountServiceImpl(accountDao);
+    private final FxService fxService = new FxServiceImpl(accountDao);
+    private final CreditCardService creditCardService = new CreditCardServiceImpl(cardDao, accountDao);
 
     private String twdAccountNo;
     private String fxAccountNo;
@@ -92,7 +100,7 @@ public class DataModelSteps {
 
     @Given("已刷卡消費 {int} 元")
     public void 已刷卡消費(int amount) {
-        service.chargeCreditCard(cardNo, new BigDecimal(amount));
+        creditCardService.chargeCreditCard(cardNo, new BigDecimal(amount));
     }
 
     @Given("該卡已掛失")
@@ -107,7 +115,7 @@ public class DataModelSteps {
     @When("以匯率 {bigdecimal} 用台幣 {int} 元結購美元")
     public void 結購美元(BigDecimal rate, int twdAmount) {
         try {
-            service.buyForeignCurrency(twdAccountNo, fxAccountNo, new BigDecimal(twdAmount), rate);
+            fxService.buyForeignCurrency(twdAccountNo, fxAccountNo, new BigDecimal(twdAmount), rate);
         } catch (RuntimeException e) {
             lastError = e;
         }
@@ -115,13 +123,13 @@ public class DataModelSteps {
 
     @When("存入台幣 {int} 元")
     public void 存入台幣(int amount) {
-        service.deposit(twdAccountNo, "TWD", new BigDecimal(amount));
+        accountService.deposit(twdAccountNo, "TWD", new BigDecimal(amount));
     }
 
     @When("提領台幣 {int} 元")
     public void 提領台幣(int amount) {
         try {
-            service.withdraw(twdAccountNo, new BigDecimal(amount));
+            accountService.withdraw(twdAccountNo, new BigDecimal(amount));
         } catch (RuntimeException e) {
             lastError = e;
         }
@@ -130,7 +138,7 @@ public class DataModelSteps {
     @When("刷卡消費 {int} 元")
     public void 刷卡消費(int amount) {
         try {
-            service.chargeCreditCard(cardNo, new BigDecimal(amount));
+            creditCardService.chargeCreditCard(cardNo, new BigDecimal(amount));
         } catch (RuntimeException e) {
             lastError = e;
         }

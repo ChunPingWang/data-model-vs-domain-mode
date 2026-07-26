@@ -4,26 +4,29 @@
 是三個獨立的聚合，各自守住自己的不變量；金額與幣別以 `Money` Value Object
 綁定；跨聚合的流程（換匯、繳卡費）由 Domain Service 編排。
 
-## 結構
+## 結構：六角架構（Ports & Adapters），domain 層單獨抽離
 
-| 套件 | 內容 | DDD 構件 |
+四個頂層套件的相依方向：`adapter → application → domain`，`bootstrap` 負責組裝。
+**`domain/` 不 import 其他任何層**（也不 import 任何框架），是可以整包搬走的純業務核心。
+
+| 套件 | 內容 | 構件 |
 |---|---|---|
-| `web/` | `FxPurchaseController`：**只依賴輸入 Port 介面**，不認識實作與聚合 | Web Adapter |
+| `domain/model/shared/` | `Money`、`ExchangeRate` | Value Object |
+| `domain/model/customer/` | `Customer`、`CustomerId`、`ContactInfo` | Aggregate Root / VO |
+| `domain/model/account/` | `TwdAccount`、`ForeignCurrencyAccount`、`AccountNumber` | Aggregate Root / VO |
+| `domain/model/card/` | `CreditCard`、`CardNumber` | Aggregate Root / VO |
+| `domain/service/` | `CurrencyExchangeService`、`CreditCardPaymentService` | Domain Service |
+| `domain/repository/` | 三個 Repository **介面**：**一個 Repository 對應一個聚合**，`save()` 傳入整個聚合 | Outbound Port |
 | `application/port/in/` | `BuyForeignCurrencyUseCase`（介面，Command in / DTO out） | Inbound Port |
-| `application/` | `BuyForeignCurrencyService`：輸入 Port 的實作，只編排 | Application Service |
-| `shared/` | `Money`、`ExchangeRate` | Value Object |
-| `customer/` | `Customer`、`CustomerId`、`ContactInfo` | Aggregate Root / VO |
-| `account/` | `TwdAccount`、`ForeignCurrencyAccount`、`AccountNumber` | Aggregate Root / VO |
-| `card/` | `CreditCard`、`CardNumber` | Aggregate Root / VO |
-| `service/` | `CurrencyExchangeService`、`CreditCardPaymentService` | Domain Service |
-| `repository/` | 三個 Repository **介面**：**一個 Repository 對應一個聚合**，`save()` 傳入整個聚合 | Repository |
-| `infrastructure/` | Repository 實作：`ForeignCurrencyAccount` 聚合拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表 | Infrastructure |
-| `demo/` | `DomainModelDemo`：可執行的端到端驗證 | — |
+| `application/service/` | `BuyForeignCurrencyService`：輸入 Port 的實作，只編排 | Application Service |
+| `adapter/in/web/` | `FxPurchaseController`：**只依賴輸入 Port 介面**，不認識實作與聚合 | Inbound Adapter |
+| `adapter/out/persistence/` | Repository 實作：`ForeignCurrencyAccount` 聚合拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表 | Outbound Adapter |
+| `bootstrap/` | `DomainModelDemo`：組裝根（唯一同時認識介面與實作的地方）＋可執行驗證 | Composition Root |
 | `src/test/` | 中文 Gherkin（與 data 模組同一份）+ Cucumber Step Definitions | — |
 
 ```bash
 mvn test -pl domain-model-approach        # 8 個 Cucumber 場景
-java -cp target/classes com.bank.domainmodel.demo.DomainModelDemo
+java -cp target/classes com.bank.domainmodel.bootstrap.DomainModelDemo
 ```
 
 ## 關鍵設計決策

@@ -1,20 +1,24 @@
 # Data Model 途徑（資料導向）
 
 設計從 **資料表** 出發：先畫 ER 圖決定 `CUSTOMER / ACCOUNT / CREDIT_CARD / TRANSACTION_LOG`
-四張表，程式物件（`*DO`）是資料表的一對一鏡射，業務邏輯全部集中在
-[`BankingService`](src/main/java/com/bank/datamodel/service/BankingService.java)
-（Fowler 所稱的 **Transaction Script** 模式）。
+四張表，程式物件（`*DO`）是資料表的一對一鏡射，業務邏輯以
+**Transaction Script**（Fowler）的形式集中在 Service 實作。
 
-## 結構（三層）
+## 結構：三層式架構（SOLID 版）
+
+類別相依全部介面化：Controller → Service 介面 → DAO 介面（DIP），
+一個業務域一個 Service 介面（SRP/ISP）。
+但 `AccountDO` 仍貫穿三層、外洩到 API——那是 Data Model 範式的本質，不是 SOLID 能解的。
 
 | 層 | 內容 |
 |---|---|
 | `schema.sql` | 資料表定義——真正的「模型」在這裡 |
-| `web/` | `AccountController`：DO 原樣回傳前端，API 契約 = 資料表 schema |
-| `service/` | `BankingService`：存款、提款、換匯、刷卡、繳款五支流程（Business Layer） |
-| `dao/` | **一個 DAO 對應一張表**，傳輸單位是「一列 DO」（含 in-memory 實作） |
+| `web/` | Presentation：`AccountController` 只依賴 Service **介面**；DO 原樣回傳前端，API 契約 = 資料表 schema |
+| `service/` | Business 抽象：`AccountService` / `FxService` / `CreditCardService` 三個介面 |
+| `service/impl/` | Transaction Script 實作：存款、提款、換匯、刷卡、繳款（規則全在這） |
+| `dao/` | Data Access：**一個 DAO 介面對應一張表**，傳輸單位是「一列 DO」（含 in-memory 實作） |
 | `entity/` | `CustomerDO` / `AccountDO` / `CreditCardDO`：只有 getter/setter 的貧血物件 |
-| `demo/` | `DataModelDemo`：可執行的端到端驗證（含資料洞示範） |
+| `demo/` | `DataModelDemo`：組裝根＋可執行驗證（含資料洞示範） |
 | `src/test/` | 中文 Gherkin（與 domain 模組同一份）+ Cucumber Step Definitions |
 
 ```bash

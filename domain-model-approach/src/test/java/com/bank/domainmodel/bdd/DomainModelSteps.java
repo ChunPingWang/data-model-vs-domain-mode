@@ -1,17 +1,17 @@
 package com.bank.domainmodel.bdd;
 
-import com.bank.domainmodel.account.AccountNumber;
-import com.bank.domainmodel.account.ForeignCurrencyAccount;
-import com.bank.domainmodel.account.TwdAccount;
-import com.bank.domainmodel.application.BuyForeignCurrencyService;
+import com.bank.domainmodel.domain.model.account.AccountNumber;
+import com.bank.domainmodel.domain.model.account.ForeignCurrencyAccount;
+import com.bank.domainmodel.domain.model.account.TwdAccount;
+import com.bank.domainmodel.application.service.BuyForeignCurrencyService;
 import com.bank.domainmodel.application.port.in.BuyForeignCurrencyUseCase;
-import com.bank.domainmodel.card.CardNumber;
-import com.bank.domainmodel.card.CreditCard;
-import com.bank.domainmodel.customer.CustomerId;
-import com.bank.domainmodel.infrastructure.persistence.InMemoryForeignCurrencyAccountRepository;
-import com.bank.domainmodel.infrastructure.persistence.InMemoryTwdAccountRepository;
-import com.bank.domainmodel.service.CurrencyExchangeService;
-import com.bank.domainmodel.shared.Money;
+import com.bank.domainmodel.domain.model.card.CardNumber;
+import com.bank.domainmodel.domain.model.card.CreditCard;
+import com.bank.domainmodel.domain.model.customer.CustomerId;
+import com.bank.domainmodel.adapter.out.persistence.InMemoryForeignCurrencyAccountRepository;
+import com.bank.domainmodel.adapter.out.persistence.InMemoryTwdAccountRepository;
+import com.bank.domainmodel.domain.service.CurrencyExchangeService;
+import com.bank.domainmodel.domain.model.shared.Money;
 
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;

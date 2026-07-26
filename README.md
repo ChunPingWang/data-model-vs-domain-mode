@@ -8,40 +8,75 @@
 ——測試本身也是比較的一部分。
 
 ```
-├── pom.xml                       # Maven 多模組（Cucumber + JUnit 5）
-├── data-model-approach/          # 資料導向：資料表鏡射 + Transaction Script
-│   ├── schema.sql                #   設計起點：ER 圖與資料表
+├── pom.xml                          # Maven 多模組（Cucumber + JUnit 5）
+├── data-model-approach/             # 資料導向：三層式架構（SOLID 版）
+│   ├── schema.sql                   #   設計起點：ER 圖與資料表
 │   └── src
 │       ├── main/.../datamodel/
-│       │   ├── web/              #   AccountController —— DO 直接回傳前端
-│       │   ├── service/          #   BankingService（Transaction Script，規則全在這）
-│       │   ├── dao/              #   一個 DAO 對應一張表，傳輸單位是「一列」
-│       │   ├── entity/           #   貧血 DO（只有 getter/setter）
-│       │   └── demo/             #   DataModelDemo —— 可執行的端到端驗證
+│       │   ├── web/                 # Presentation：Controller 只依賴 Service「介面」
+│       │   ├── service/             # Business 抽象：AccountService / FxService / CreditCardService
+│       │   │   └── impl/            #   Transaction Script 實作（規則全在這）
+│       │   ├── dao/                 # Data Access：一個 DAO 介面對應一張表，傳輸單位是「一列」
+│       │   ├── entity/              # 貧血 DO（只有 getter/setter，貫穿三層）
+│       │   └── demo/                # DataModelDemo —— 組裝根 + 可執行驗證
 │       └── test/
-│           ├── resources/features/   # 中文 Gherkin（與另一模組同一份）
-│           └── java/.../bdd/         # Cucumber Step Definitions
-└── domain-model-approach/        # 領域導向：聚合 + Value Object + Domain Service
+│           ├── resources/features/  # 中文 Gherkin（與另一模組同一份）
+│           └── java/.../bdd/        # Cucumber Step Definitions
+└── domain-model-approach/           # 領域導向：六角架構（Ports & Adapters）
     └── src
         ├── main/.../domainmodel/
-        │   ├── web/              #   FxPurchaseController —— 只依賴輸入 Port「介面」
+        │   ├── domain/              # ★ 純領域層，單獨抽離，不依賴其他任何層
+        │   │   ├── model/
+        │   │   │   ├── shared/      #   Money / ExchangeRate（Value Object）
+        │   │   │   ├── customer/    #   Customer 聚合
+        │   │   │   ├── account/     #   TwdAccount / ForeignCurrencyAccount 聚合
+        │   │   │   └── card/        #   CreditCard 聚合
+        │   │   ├── service/         #   跨聚合的 Domain Service
+        │   │   └── repository/      #   輸出 Port：一個 Repository 介面對應「一個聚合」
         │   ├── application/
-        │   │   ├── port/in/      #   BuyForeignCurrencyUseCase 輸入 Port（介面）
-        │   │   └── ...           #   BuyForeignCurrencyService（Port 實作，只編排）
-        │   ├── shared/           #   Money / ExchangeRate（Value Object）
-        │   ├── customer/ account/ card/  # 聚合：規則的家
-        │   ├── service/          #   跨聚合的 Domain Service
-        │   ├── repository/       #   一個 Repository 對應「一個聚合」（介面）
-        │   ├── infrastructure/   #   Repository 實作：一個聚合 ↔ 多張表
-        │   └── demo/             #   DomainModelDemo —— 可執行的端到端驗證
-        └── test/                 #   同一份 Gherkin + 自己的 Step Definitions
+        │   │   ├── port/in/         #   輸入 Port：BuyForeignCurrencyUseCase（介面）
+        │   │   └── service/         #   BuyForeignCurrencyService（Port 實作，只編排）
+        │   ├── adapter/
+        │   │   ├── in/web/          #   FxPurchaseController —— 只依賴輸入 Port 介面
+        │   │   └── out/persistence/ #   Repository 實作：一個聚合 ↔ 多張表
+        │   └── bootstrap/           #   組裝根（Composition Root）+ 可執行驗證
+        └── test/                    # 同一份 Gherkin + 自己的 Step Definitions
 ```
 
+## 如何使用
+
+**環境需求**：JDK 21+、Maven 3.9+（不需要資料庫，儲存層以 in-memory 實作模擬）。
+
 ```bash
-mvn test                                                            # 跑兩個模組的 Cucumber 驗收（8+8 場景）
-java -cp data-model-approach/target/classes  com.bank.datamodel.demo.DataModelDemo
-java -cp domain-model-approach/target/classes com.bank.domainmodel.demo.DomainModelDemo
+# 1. 跑 BDD 驗收測試：兩個模組各 8 個 Cucumber 場景（同一份 Gherkin）
+mvn test
+
+# 只跑單一模組
+mvn test -pl data-model-approach
+mvn test -pl domain-model-approach
+
+# 2. 跑端到端 Demo（先 mvn test 或 mvn compile 產出 target/classes）
+java -cp data-model-approach/target/classes   com.bank.datamodel.demo.DataModelDemo
+java -cp domain-model-approach/target/classes com.bank.domainmodel.bootstrap.DomainModelDemo
 ```
+
+**建議閱讀順序**：
+
+1. 先讀兩邊的「模型」：`schema.sql`（Data Model 的起點）↔ `domain/model/`（Domain Model 的起點）。
+2. 讀同一個業務場景的測試：`src/test/resources/features/currency_exchange.feature`（兩模組同一份），
+   再對照兩邊的 Step Definitions（`DataModelSteps` ↔ `DomainModelSteps`）。
+3. 順著一筆換匯交易走完各自的分層（見第三節的循序圖與 Class Diagram）。
+4. 跑兩支 Demo，看 Data Model 側的「資料洞示範」與 Domain Model 側的「不變量驗證」輸出。
+
+**如何在此架構上加新功能**（以「新增『台幣轉帳』」為例）：
+
+| 步驟 | data-model-approach（三層式） | domain-model-approach（六角） |
+|---|---|---|
+| 1 | 在 `features/` 寫 Gherkin 場景 | 同左（同一份） |
+| 2 | `service/` 加 `TransferService` 介面 | `domain/model/account/` 為 `TwdAccount` 加 `transferTo()` 行為（或不用改） |
+| 3 | `service/impl/` 寫 Transaction Script | `application/port/in/` 加 `TransferUseCase` 介面；`application/service/` 實作編排 |
+| 4 | Controller 注入新介面 | `adapter/in/web/` 的 Controller 注入新輸入 Port |
+| 5 | 補 Step Definitions → `mvn test` | 同左 |
 
 ---
 
@@ -177,11 +212,11 @@ classDiagram
 ```mermaid
 sequenceDiagram
     participant UI as 前端
-    participant C as AccountController
-    participant S as BankingService<br/>(Transaction Script)
-    participant D as AccountDao<br/>(一表一 DAO)
+    participant C as AccountController<br/>(只依賴 Service 介面)
+    participant S as FxServiceImpl<br/>(Transaction Script)
+    participant D as AccountDao<br/>(介面，一表一 DAO)
     UI->>C: POST /fx/purchase (帳號、金額、匯率都是裸字串/數字)
-    C->>S: buyForeignCurrency(...)
+    C->>S: buyForeignCurrency(...) — 透過 FxService 介面
     S->>D: findByAccountNo(台幣帳號) → AccountDO(一列)
     S->>D: findByAccountNo(外幣帳號) → AccountDO(一列)
     Note over S: 所有 if/else 檢查 + 匯率計算<br/>+ setBalance() 都在這裡
@@ -211,27 +246,40 @@ sequenceDiagram
     C-->>UI: Result DTO（語意化欄位，與表結構脫鉤）
 ```
 
-### Class Diagram：相依方向是兩張圖的分水嶺
+### Class Diagram：兩邊都遵守 SOLID，分水嶺在「模型」
 
-**Data Model 途徑（對照組）**——箭頭一路向下穿透，最終全部依賴資料表形狀；
-前端依賴 Service「實作」，`AccountDO`（＝ACCOUNT 表的鏡射）還外洩到 API 契約：
+兩個途徑的類別相依**都已介面化**（Controller 依賴 Service 介面、實作依賴 DAO／Repository 介面）。
+真正的差異在**每一層傳遞的東西**：Data Model 是同一顆 `AccountDO` 貫穿三層；
+Domain Model 是每層有自己的模型（Command/DTO ↔ 聚合 ↔ Row）。
+
+**Data Model 途徑（三層式，SOLID 版）**——介面都對了，
+但 `AccountDO`（＝ACCOUNT 表的鏡射）仍然貫穿三層、外洩到 API 契約：
 
 ```mermaid
 classDiagram
     direction TB
     class AccountController {
-        <<Web>>
+        <<Presentation>>
         +getAccount(no) AccountDO
         +buyForeignCurrency(...)
     }
-    class BankingService {
-        <<Transaction Script>>
+    class AccountService {
+        <<Business · interface>>
+        +getAccount(no) AccountDO
         +deposit() / withdraw()
-        +buyForeignCurrency()
-        +chargeCreditCard()
+    }
+    class FxService {
+        <<Business · interface>>
+        +buyForeignCurrency(...)
+    }
+    class AccountServiceImpl {
+        <<Transaction Script>>
+    }
+    class FxServiceImpl {
+        <<Transaction Script>>
     }
     class AccountDao {
-        <<interface·一表一DAO>>
+        <<Data Access · interface>>
         +findByAccountNo(String) AccountDO
         +update(AccountDO)
     }
@@ -243,12 +291,16 @@ classDiagram
         +getBalance() / setBalance()
         +getAcctType() : "01"/"02"/"03"
     }
-    AccountController --> BankingService : 依賴「實作」(違反 DIP)
-    AccountController --> AccountDO : DO 外洩到 API
-    BankingService --> AccountDao : 傳「一列」
-    BankingService --> AccountDO : 直接 get/set 欄位
-    InMemoryAccountDao ..|> AccountDao
-    InMemoryAccountDao --> AccountDO
+    AccountController ..> AccountService : 依賴介面 (DIP)
+    AccountController ..> FxService : 依賴介面 (DIP)
+    AccountService <|.. AccountServiceImpl
+    FxService <|.. FxServiceImpl
+    AccountServiceImpl ..> AccountDao : 依賴介面 (DIP)
+    FxServiceImpl ..> AccountDao : 依賴介面 (DIP)
+    AccountDao <|.. InMemoryAccountDao
+    AccountController --> AccountDO : ★ DO 外洩到 API
+    AccountServiceImpl --> AccountDO : ★ 直接 get/set 欄位
+    InMemoryAccountDao --> AccountDO : ★ 同一顆 DO 貫穿三層
 ```
 
 **Domain Model 途徑（嚴格 SOLID）**——前端 Adapter 與 Repository 實作**都指向核心**：
@@ -314,27 +366,35 @@ classDiagram
 
 實際 import 驗證（程式碼與圖一致）：
 
-- [`FxPurchaseController`](domain-model-approach/src/main/java/com/bank/domainmodel/web/FxPurchaseController.java) 只 import `application.port.in.BuyForeignCurrencyUseCase`——不認識 Service 實作、聚合、Repository。
-- [`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/infrastructure/persistence/InMemoryForeignCurrencyAccountRepository.java) 只 import 領域層（Repository 介面＋聚合）——不認識 application 與 web。
-- 介面與實作只在**組裝根**（[`DomainModelDemo`](domain-model-approach/src/main/java/com/bank/domainmodel/demo/DomainModelDemo.java) 的 main、或 Spring 的 DI 容器）相遇。
+- [`FxPurchaseController`](domain-model-approach/src/main/java/com/bank/domainmodel/adapter/in/web/FxPurchaseController.java) 只 import `application.port.in.BuyForeignCurrencyUseCase`——不認識 Service 實作、聚合、Repository。
+- [`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/adapter/out/persistence/InMemoryForeignCurrencyAccountRepository.java) 只 import 領域層（Repository 介面＋聚合）——不認識 application 與 web。
+- 介面與實作只在**組裝根**（[`DomainModelDemo`](domain-model-approach/src/main/java/com/bank/domainmodel/bootstrap/DomainModelDemo.java) 的 main、或 Spring 的 DI 容器）相遇。
 
-### SOLID 逐條對應
+### SOLID 逐條對應：兩邊怎麼各自滿足，以及 SOLID 修不了什麼
 
-| 原則 | 落在哪裡 | Data Model 途徑的對照 |
+| 原則 | Data Model（三層式作法） | Domain Model（六角作法） |
 |---|---|---|
-| **S**RP | Controller 只轉譯、Service 只編排、聚合只守自己的規則、Repository 實作只管存取 | `BankingService` 同時做檢查＋計算＋跨表寫入，三種業務混在一個類別 |
-| **O**CP | 加「數位帳戶」＝新增聚合＋新 Repository，既有類別不改 | 加 `ACCT_TYPE=04` 要回頭改每個 if/else |
-| **L**SP | 任何 `TwdAccountRepository` 實作（in-memory/JPA/JDBC）可互換，UseCase 行為不變——BDD 測試就是替換證明 | DAO 可替換，但規則在 Service，換儲存仍綁死表結構 |
-| **I**SP | 一個 Use Case 一個輸入 Port；一個聚合一個輸出 Port，沒有萬用大介面 | `BankingService` 是萬用入口，呼叫端被迫依賴用不到的方法 |
-| **D**IP | **前端依賴輸入 Port 介面；Repository 實作依賴輸出 Port 介面**——高低階模組都依賴抽象，箭頭全部指向核心 | Controller 依賴 Service 實作、全體依賴 `AccountDO`＝依賴資料表 |
+| **S**RP | 上帝類別拆成 `AccountService` / `FxService` / `CreditCardService`，一個業務域一個類別 | Controller 只轉譯、UseCase 只編排、聚合只守自己的規則、Repository 實作只管存取 |
+| **O**CP | 加新「業務」＝加新 Service 介面＋實作，既有類別不動 | 加新「業務型態」＝新增聚合＋新 Port，既有類別不動 |
+| **L**SP | 任何 `AccountDao` 實作（in-memory/JDBC/MyBatis）可互換，Service 行為不變 | 任何 Repository 實作可互換，UseCase 行為不變——BDD 測試就是替換證明 |
+| **I**SP | 一個業務域一個小介面，Controller 只注入用得到的 | 一個 Use Case 一個輸入 Port；一個聚合一個輸出 Port |
+| **D**IP | Controller → Service **介面**；ServiceImpl → DAO **介面** | 前端 Adapter → 輸入 Port 介面；Repository 實作 → 輸出 Port 介面，箭頭全部指向核心 |
+
+> **SOLID 是類別關係的紀律，不是建模範式**——兩邊都能合規。合規之後仍然消不掉的差異，才是
+> Data Model vs. Domain Model 的本質：
+> 1. **模型貫穿 vs. 每層一模**：`AccountDO` 從 DAO 一路裸奔到 API；六角側是 Command/DTO ↔ 聚合 ↔ Row，各層解耦。
+> 2. **規則的落點**：三層式規則仍在 Service 的 if/else（`OCP` 只保護「加業務」，「加帳戶型態 `ACCT_TYPE=04`」
+>    還是得回頭改 `AccountServiceImpl` 的分支）；六角側加型態＝加聚合。
+> 3. **不變量保護**：`AccountDO.setBalance(-50000)` 依然任何人都寫得出來（Demo 有實證）；聚合側沒有 setter。
+> 4. **Repository 粒度**：DAO ↔ 表（傳一列）；Repository ↔ 聚合（傳整個聚合，表數是實作細節）。
 
 ### 逐層對照（每一格都有對應的程式檔可驗證）
 
 | 層 | Data Model 途徑 | Domain Model 途徑 |
 |---|---|---|
-| **前端呈現** | [`AccountController`](data-model-approach/src/main/java/com/bank/datamodel/web/AccountController.java) 依賴 Service **實作**，把 `AccountDO` 原樣回傳：畫面拿到 `acctType:"03"`、`status:"A"`，自己查碼表翻譯。**API 契約 = 資料表 schema**，改表即改 API | [`FxPurchaseController`](domain-model-approach/src/main/java/com/bank/domainmodel/web/FxPurchaseController.java) 只依賴[輸入 Port 介面](domain-model-approach/src/main/java/com/bank/domainmodel/application/port/in/BuyForeignCurrencyUseCase.java)，回傳語意化 DTO（`purchasedFxAmount: "USD 1000.00"`）。聚合不外洩，**API 契約與儲存結構脫鉤** |
-| **Business Layer** | `BankingService` 一支 Transaction Script 做完載入、檢查、計算、寫回；規則跨方法重複 | [`BuyForeignCurrencyService`](domain-model-approach/src/main/java/com/bank/domainmodel/application/BuyForeignCurrencyService.java) 實作輸入 Port、只編排（載入→呼叫領域行為→存回→轉 DTO）；規則在聚合與 `ExchangeRate` 裡，各寫一次 |
-| **Repository Layer** | **一個 DAO ↔ 一張表**，傳輸單位是「一列 DO」；跨表一致性由 Service 呼叫兩次 `update()` 自行維持 | **一個 Repository ↔ 一個聚合**，`save()` 傳入**整個聚合**；[`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/infrastructure/persistence/InMemoryForeignCurrencyAccountRepository.java) 內部拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表，呼叫端毫不知情 |
+| **前端呈現** | [`AccountController`](data-model-approach/src/main/java/com/bank/datamodel/web/AccountController.java) 依賴 Service **介面**（DIP），但把 `AccountDO` 原樣回傳：畫面拿到 `acctType:"03"`、`status:"A"`，自己查碼表翻譯。**API 契約 = 資料表 schema**，改表即改 API | [`FxPurchaseController`](domain-model-approach/src/main/java/com/bank/domainmodel/adapter/in/web/FxPurchaseController.java) 只依賴[輸入 Port 介面](domain-model-approach/src/main/java/com/bank/domainmodel/application/port/in/BuyForeignCurrencyUseCase.java)，回傳語意化 DTO（`purchasedFxAmount: "USD 1000.00"`）。聚合不外洩，**API 契約與儲存結構脫鉤** |
+| **Business Layer** | [`FxServiceImpl`](data-model-approach/src/main/java/com/bank/datamodel/service/impl/FxServiceImpl.java) 等 Transaction Script 做完載入、檢查、計算、寫回；同類檢查跨 Service 重複 | [`BuyForeignCurrencyService`](domain-model-approach/src/main/java/com/bank/domainmodel/application/service/BuyForeignCurrencyService.java) 實作輸入 Port、只編排（載入→呼叫領域行為→存回→轉 DTO）；規則在聚合與 `ExchangeRate` 裡，各寫一次 |
+| **Repository Layer** | **一個 DAO ↔ 一張表**，傳輸單位是「一列 DO」；跨表一致性由 Service 呼叫兩次 `update()` 自行維持 | **一個 Repository ↔ 一個聚合**，`save()` 傳入**整個聚合**；[`InMemoryForeignCurrencyAccountRepository`](domain-model-approach/src/main/java/com/bank/domainmodel/adapter/out/persistence/InMemoryForeignCurrencyAccountRepository.java) 內部拆寫 `FX_ACCOUNT` + `FX_SUB_ACCOUNT` 兩張表，呼叫端毫不知情 |
 
 > **Repository 粒度是兩者最本質的差異之一**：
 > Data Model 的 DAO 與資料表一一對應（`AccountDao ↔ ACCOUNT`），聚合這個概念不存在；
@@ -345,7 +405,7 @@ classDiagram
 
 兩邊各附一支可執行 Demo 驗證上述行為（含 Data Model 途徑「繞過 Service 寫出負餘額、幣別錯帳」的資料洞示範）：
 [`DataModelDemo`](data-model-approach/src/main/java/com/bank/datamodel/demo/DataModelDemo.java)、
-[`DomainModelDemo`](domain-model-approach/src/main/java/com/bank/domainmodel/demo/DomainModelDemo.java)。
+[`DomainModelDemo`](domain-model-approach/src/main/java/com/bank/domainmodel/bootstrap/DomainModelDemo.java)。
 
 ---
 
